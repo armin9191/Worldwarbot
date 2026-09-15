@@ -4,6 +4,7 @@
 
 import database
 import keyboards
+import reports
 
 
 # ==============================
@@ -616,7 +617,7 @@ def handle_update(update):
             )
             return
         
-            # ==================================
+        # ==================================
         # بررسی داشتن تجهیزات نظامی
         # ==================================
 
@@ -660,8 +661,6 @@ def handle_update(update):
                 "❌ این کشور دیگر قابل حمله نیست."
             )
             return
-        
-    
         
         # ذخیره وضعیت حمله
         attack_sessions[user_id] = {
@@ -849,6 +848,14 @@ def handle_update(update):
         # چون بعداً کشور مدافع ممکن است ریست شود
         attacker_country = attacker["country"]
 
+        # ==================================
+        # ذخیره اطلاعات دفاع قبل از حمله
+        # ==================================
+
+        defense_power_before = calculate_defense_power(
+            defender_id
+        )
+
         result = execute_attack(
             user_id,
             defender_id,
@@ -862,6 +869,42 @@ def handle_update(update):
                 "❌ اجرای حمله با خطا مواجه شد."
             )
             return
+
+        # ==================================
+        # گزارش حمله
+        # فقط بعد از اجرای موفق کامل حمله
+        # ==================================
+
+        damage_percent = 0
+
+        if result["old_hp"] > 0:
+
+            damage_percent = (
+                result["damage"] /
+                result["old_hp"]
+            ) * 100
+
+        if damage_percent > 100:
+            damage_percent = 100
+
+        destroyed = result["new_hp"] <= 0
+
+        if destroyed:
+            winner = "attack"
+        else:
+            winner = "defense"
+
+        reports.send_attack_report(
+            attacker_country=attacker_country,
+            defender_country=defender["country"],
+            percent=percent,
+            attack_power=result["attack_power"],
+            defense_power=defense_power_before,
+            damage_percent=damage_percent,
+            winner=winner,
+            destroyed=destroyed,
+            compensation=result["compensation"]
+        )
 
         # ==================================
         # ارسال گزارش حمله به مدافع
