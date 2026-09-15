@@ -1,18 +1,27 @@
 # ==============================
-# World War - Database
+# World War - PostgreSQL Database
 # ==============================
 
-import sqlite3
-
-from config import DATABASE_NAME
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 
 # =========================
-# اتصال به دیتابیس
+# تنظیم اتصال
 # =========================
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 def get_connection():
-    return sqlite3.connect(DATABASE_NAME)
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL پیدا نشد. "
+            "متغیر DATABASE_URL را در Railway تنظیم کنید."
+        )
+
+    return psycopg2.connect(DATABASE_URL)
 
 
 # =========================
@@ -23,36 +32,156 @@ def init_db():
     connection = get_connection()
     cursor = connection.cursor()
 
-    # جدول کاربران
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            country TEXT,
-            budget INTEGER DEFAULT 100000,
-            hp INTEGER DEFAULT 100
-        )
-    """)
+    try:
 
-    # جدول موجودی
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS inventory (
-            user_id INTEGER NOT NULL,
-            item_id TEXT NOT NULL,
-            quantity INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (user_id, item_id)
-        )
-    """)
+        # =========================
+        # کاربران
+        # =========================
 
-    # جدول ثبت آخرین واریز درآمد معادن
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS mine_income_state (
-            id INTEGER PRIMARY KEY CHECK(id = 1),
-            last_payout_date TEXT
-        )
-    """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                country TEXT,
+                budget BIGINT DEFAULT 100000,
+                hp INTEGER DEFAULT 100
+            )
+        """)
 
-    connection.commit()
-    connection.close()
+        # =========================
+        # موجودی
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inventory (
+                user_id BIGINT NOT NULL,
+                item_id TEXT NOT NULL,
+                quantity BIGINT NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, item_id)
+            )
+        """)
+
+        # =========================
+        # وضعیت درآمد معدن
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS mine_income_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_payout_date TEXT
+            )
+        """)
+
+        # =========================
+        # اتحادها
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alliances (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                leader_id BIGINT NOT NULL,
+                treasury BIGINT NOT NULL DEFAULT 0,
+                status TEXT,
+                created_at BIGINT
+            )
+        """)
+
+        # =========================
+        # اعضای اتحاد
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alliance_members (
+                alliance_id INTEGER NOT NULL,
+                user_id BIGINT NOT NULL,
+                role TEXT,
+                joined_at BIGINT,
+                PRIMARY KEY (alliance_id, user_id)
+            )
+        """)
+
+        # =========================
+        # تراکنش‌های اتحاد
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alliance_transactions (
+                id SERIAL PRIMARY KEY,
+                alliance_id INTEGER NOT NULL,
+                user_id BIGINT NOT NULL,
+                tx_type TEXT,
+                amount BIGINT,
+                item_id TEXT,
+                quantity BIGINT,
+                note TEXT,
+                created_at BIGINT
+            )
+        """)
+
+        # =========================
+        # انبار اتحاد
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alliance_warehouse (
+                alliance_id INTEGER NOT NULL,
+                item_id TEXT NOT NULL,
+                quantity BIGINT NOT NULL DEFAULT 0,
+                PRIMARY KEY (alliance_id, item_id)
+            )
+        """)
+
+        # =========================
+        # شرکت‌های بین‌المللی
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS international_companies (
+                company_id TEXT PRIMARY KEY,
+                owner_user_id BIGINT,
+                created_at TEXT
+            )
+        """)
+
+        # =========================
+        # کارمندان شرکت
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS company_employees (
+                company_id TEXT NOT NULL,
+                user_id BIGINT PRIMARY KEY,
+                joined_at TEXT
+            )
+        """)
+
+        # =========================
+        # پرداخت‌های روزانه شرکت
+        # =========================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS company_daily_payouts (
+                payout_date TEXT NOT NULL,
+                user_id BIGINT NOT NULL,
+                company_id TEXT NOT NULL,
+                role TEXT,
+                amount BIGINT,
+                created_at TEXT,
+                PRIMARY KEY (payout_date, user_id)
+            )
+        """)
+
+        connection.commit()
+
+    except Exception as error:
+        connection.rollback()
+        print(f"Database Init Error: {error}")
+        raise
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
@@ -63,19 +192,24 @@ def create_user(user_id):
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT OR IGNORE INTO users
-        (user_id, country, budget, hp)
-        VALUES (?, ?, ?, ?)
-    """, (
-        user_id,
-        None,
-        200000000,
-        100
-    ))
+    try:
+        cursor.execute("""
+            INSERT INTO users
+            (user_id, country, budget, hp)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id) DO NOTHING
+        """, (
+            user_id,
+            None,
+            200000000,
+            100
+        ))
 
-    connection.commit()
-    connection.close()
+        connection.commit()
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
@@ -86,15 +220,18 @@ def get_user(user_id):
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT user_id, country, budget, hp
-        FROM users
-        WHERE user_id = ?
-    """, (user_id,))
+    try:
+        cursor.execute("""
+            SELECT user_id, country, budget, hp
+            FROM users
+            WHERE user_id = %s
+        """, (user_id,))
 
-    user = cursor.fetchone()
+        user = cursor.fetchone()
 
-    connection.close()
+    finally:
+        cursor.close()
+        connection.close()
 
     if user is None:
         return None
@@ -122,23 +259,26 @@ def get_or_create_user(user_id):
 
 
 # =========================
-# گرفتن صاحب یک کشور
+# گرفتن صاحب کشور
 # =========================
 
 def get_country_owner(country):
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT user_id
-        FROM users
-        WHERE country = ?
-        LIMIT 1
-    """, (country,))
+    try:
+        cursor.execute("""
+            SELECT user_id
+            FROM users
+            WHERE country = %s
+            LIMIT 1
+        """, (country,))
 
-    result = cursor.fetchone()
+        result = cursor.fetchone()
 
-    connection.close()
+    finally:
+        cursor.close()
+        connection.close()
 
     if result is None:
         return None
@@ -154,21 +294,23 @@ def is_country_available(country, user_id=None):
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT user_id
-        FROM users
-        WHERE country = ?
-        LIMIT 1
-    """, (country,))
+    try:
+        cursor.execute("""
+            SELECT user_id
+            FROM users
+            WHERE country = %s
+            LIMIT 1
+        """, (country,))
 
-    result = cursor.fetchone()
+        result = cursor.fetchone()
 
-    connection.close()
+    finally:
+        cursor.close()
+        connection.close()
 
     if result is None:
         return True
 
-    # اگر صاحب کشور خود همین کاربر باشد
     if user_id is not None and result[0] == user_id:
         return True
 
@@ -180,29 +322,18 @@ def is_country_available(country, user_id=None):
 # =========================
 
 def set_country(user_id, country):
-    """
-    انتخاب کشور به صورت امن.
-
-    خروجی:
-    success        = انتخاب موفق
-    occupied       = کشور قبلاً گرفته شده
-    already_owned  = همین کاربر قبلاً همین کشور را دارد
-    has_country    = کاربر از قبل کشور دیگری دارد
-    not_found      = کاربر وجود ندارد
-    """
 
     connection = get_connection()
     cursor = connection.cursor()
 
     try:
-        # جلوگیری از تداخل همزمان
-        cursor.execute("BEGIN IMMEDIATE")
 
-        # بررسی کاربر
+        # قفل کردن رکورد کاربر
         cursor.execute("""
             SELECT country
             FROM users
-            WHERE user_id = ?
+            WHERE user_id = %s
+            FOR UPDATE
         """, (user_id,))
 
         user = cursor.fetchone()
@@ -213,22 +344,23 @@ def set_country(user_id, country):
 
         current_country = user[0]
 
-        # اگر همین کشور را دارد
+        # همین کشور
         if current_country == country:
             connection.commit()
             return "already_owned"
 
-        # اگر از قبل کشور دیگری دارد
+        # کشور دیگری دارد
         if current_country is not None:
             connection.commit()
             return "has_country"
 
-        # بررسی اینکه کشور قبلاً گرفته شده یا نه
+        # بررسی کشور گرفته شده
         cursor.execute("""
             SELECT user_id
             FROM users
-            WHERE country = ?
+            WHERE country = %s
             LIMIT 1
+            FOR UPDATE
         """, (country,))
 
         owner = cursor.fetchone()
@@ -240,8 +372,8 @@ def set_country(user_id, country):
         # انتخاب کشور
         cursor.execute("""
             UPDATE users
-            SET country = ?
-            WHERE user_id = ?
+            SET country = %s
+            WHERE user_id = %s
             AND country IS NULL
         """, (
             country,
@@ -256,11 +388,14 @@ def set_country(user_id, country):
         return "success"
 
     except Exception as error:
+
         connection.rollback()
         print(f"Set Country Error: {error}")
+
         return "error"
 
     finally:
+        cursor.close()
         connection.close()
 
 
@@ -269,17 +404,23 @@ def set_country(user_id, country):
 # =========================
 
 def update_budget(user_id, budget):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE users
-        SET budget = ?
-        WHERE user_id = ?
-    """, (budget, user_id))
+    try:
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            UPDATE users
+            SET budget = %s
+            WHERE user_id = %s
+        """, (budget, user_id))
+
+        connection.commit()
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
@@ -287,24 +428,30 @@ def update_budget(user_id, budget):
 # =========================
 
 def add_budget(user_id, amount):
+
     if amount <= 0:
         return False
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE users
-        SET budget = budget + ?
-        WHERE user_id = ?
-    """, (amount, user_id))
+    try:
 
-    success = cursor.rowcount > 0
+        cursor.execute("""
+            UPDATE users
+            SET budget = budget + %s
+            WHERE user_id = %s
+        """, (amount, user_id))
 
-    connection.commit()
-    connection.close()
+        success = cursor.rowcount > 0
 
-    return success
+        connection.commit()
+
+        return success
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
@@ -312,26 +459,35 @@ def add_budget(user_id, amount):
 # =========================
 
 def decrease_budget(user_id, amount):
+
+    if amount <= 0:
+        return False
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE users
-        SET budget = budget - ?
-        WHERE user_id = ?
-        AND budget >= ?
-    """, (
-        amount,
-        user_id,
-        amount
-    ))
+    try:
 
-    success = cursor.rowcount > 0
+        cursor.execute("""
+            UPDATE users
+            SET budget = budget - %s
+            WHERE user_id = %s
+            AND budget >= %s
+        """, (
+            amount,
+            user_id,
+            amount
+        ))
 
-    connection.commit()
-    connection.close()
+        success = cursor.rowcount > 0
 
-    return success
+        connection.commit()
+
+        return success
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
@@ -339,100 +495,130 @@ def decrease_budget(user_id, amount):
 # =========================
 
 def update_hp(user_id, hp):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE users
-        SET hp = ?
-        WHERE user_id = ?
-    """, (hp, user_id))
+    try:
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            UPDATE users
+            SET hp = %s
+            WHERE user_id = %s
+        """, (hp, user_id))
+
+        connection.commit()
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
-# اضافه کردن به موجودی
+# اضافه کردن موجودی
 # =========================
 
 def add_inventory(user_id, item_id, quantity):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO inventory
-        (user_id, item_id, quantity)
-        VALUES (?, ?, ?)
-        ON CONFLICT(user_id, item_id)
-        DO UPDATE SET
-            quantity = quantity + excluded.quantity
-    """, (
-        user_id,
-        item_id,
-        quantity
-    ))
+    try:
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            INSERT INTO inventory
+            (user_id, item_id, quantity)
+            VALUES (%s, %s, %s)
+
+            ON CONFLICT (user_id, item_id)
+
+            DO UPDATE SET
+                quantity =
+                    inventory.quantity
+                    + EXCLUDED.quantity
+        """, (
+            user_id,
+            item_id,
+            quantity
+        ))
+
+        connection.commit()
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
-# کم کردن از موجودی
+# کم کردن موجودی
 # =========================
 
 def decrease_inventory(user_id, item_id, quantity):
+
+    if quantity <= 0:
+        return False
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE inventory
-        SET quantity = quantity - ?
-        WHERE user_id = ?
-        AND item_id = ?
-        AND quantity >= ?
-    """, (
-        quantity,
-        user_id,
-        item_id,
-        quantity
-    ))
+    try:
 
-    success = cursor.rowcount > 0
+        cursor.execute("""
+            UPDATE inventory
+            SET quantity = quantity - %s
+            WHERE user_id = %s
+            AND item_id = %s
+            AND quantity >= %s
+        """, (
+            quantity,
+            user_id,
+            item_id,
+            quantity
+        ))
 
-    cursor.execute("""
-        DELETE FROM inventory
-        WHERE user_id = ?
-        AND quantity <= 0
-    """, (user_id,))
+        success = cursor.rowcount > 0
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            DELETE FROM inventory
+            WHERE user_id = %s
+            AND quantity <= 0
+        """, (user_id,))
 
-    return success
+        connection.commit()
+
+        return success
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
-# گرفتن تعداد یک آیتم
+# تعداد یک آیتم
 # =========================
 
 def get_inventory_item(user_id, item_id):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT quantity
-        FROM inventory
-        WHERE user_id = ?
-        AND item_id = ?
-    """, (
-        user_id,
-        item_id
-    ))
+    try:
 
-    result = cursor.fetchone()
+        cursor.execute("""
+            SELECT quantity
+            FROM inventory
+            WHERE user_id = %s
+            AND item_id = %s
+        """, (
+            user_id,
+            item_id
+        ))
 
-    connection.close()
+        result = cursor.fetchone()
+
+    finally:
+        cursor.close()
+        connection.close()
 
     if result is None:
         return 0
@@ -441,24 +627,29 @@ def get_inventory_item(user_id, item_id):
 
 
 # =========================
-# گرفتن کل موجودی کاربر
+# کل موجودی
 # =========================
 
 def get_inventory(user_id):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT item_id, quantity
-        FROM inventory
-        WHERE user_id = ?
-        AND quantity > 0
-        ORDER BY item_id
-    """, (user_id,))
+    try:
 
-    rows = cursor.fetchall()
+        cursor.execute("""
+            SELECT item_id, quantity
+            FROM inventory
+            WHERE user_id = %s
+            AND quantity > 0
+            ORDER BY item_id
+        """, (user_id,))
 
-    connection.close()
+        rows = cursor.fetchall()
+
+    finally:
+        cursor.close()
+        connection.close()
 
     inventory = {}
 
@@ -469,27 +660,33 @@ def get_inventory(user_id):
 
 
 # ==============================
-# کشورهای انتخاب شده توسط بازیکنان
+# کشورهای انتخاب شده
 # ==============================
 
 def get_selected_countries():
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT user_id, country
-        FROM users
-        WHERE country IS NOT NULL
-        ORDER BY country
-    """)
+    try:
 
-    rows = cursor.fetchall()
+        cursor.execute("""
+            SELECT user_id, country
+            FROM users
+            WHERE country IS NOT NULL
+            ORDER BY country
+        """)
 
-    connection.close()
+        rows = cursor.fetchall()
+
+    finally:
+        cursor.close()
+        connection.close()
 
     countries = []
 
     for user_id, country in rows:
+
         countries.append({
             "user_id": user_id,
             "country": country
@@ -499,28 +696,34 @@ def get_selected_countries():
 
 
 # ==============================
-# ریست کامل بازیکن بعد از نابودی کشور
+# ریست بازیکن بعد از شکست
 # ==============================
 
 def reset_player_after_defeat(user_id):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE users
-        SET country = NULL,
-            budget = 200000000,
-            hp = 100
-        WHERE user_id = ?
-    """, (user_id,))
+    try:
 
-    cursor.execute("""
-        DELETE FROM inventory
-        WHERE user_id = ?
-    """, (user_id,))
+        cursor.execute("""
+            UPDATE users
+            SET country = NULL,
+                budget = 200000000,
+                hp = 100
+            WHERE user_id = %s
+        """, (user_id,))
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            DELETE FROM inventory
+            WHERE user_id = %s
+        """, (user_id,))
+
+        connection.commit()
+
+    finally:
+        cursor.close()
+        connection.close()
 
 
 # =========================
@@ -528,39 +731,71 @@ def reset_player_after_defeat(user_id):
 # =========================
 
 def transfer_budget(from_user_id, to_user_id, amount):
+
     if amount <= 0:
         return False
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        UPDATE users
-        SET budget = budget - ?
-        WHERE user_id = ?
-        AND budget >= ?
-    """, (amount, from_user_id, amount))
+    try:
 
-    if cursor.rowcount == 0:
+        # قفل کردن فرستنده
+        cursor.execute("""
+            SELECT budget
+            FROM users
+            WHERE user_id = %s
+            FOR UPDATE
+        """, (from_user_id,))
+
+        sender = cursor.fetchone()
+
+        if sender is None:
+            connection.rollback()
+            return False
+
+        if sender[0] < amount:
+            connection.rollback()
+            return False
+
+        # کم کردن پول فرستنده
+        cursor.execute("""
+            UPDATE users
+            SET budget = budget - %s
+            WHERE user_id = %s
+        """, (
+            amount,
+            from_user_id
+        ))
+
+        # اضافه کردن پول گیرنده
+        cursor.execute("""
+            UPDATE users
+            SET budget = budget + %s
+            WHERE user_id = %s
+        """, (
+            amount,
+            to_user_id
+        ))
+
+        if cursor.rowcount == 0:
+            connection.rollback()
+            return False
+
+        connection.commit()
+
+        return True
+
+    except Exception as error:
+
         connection.rollback()
-        connection.close()
+        print(f"Transfer Budget Error: {error}")
+
         return False
 
-    cursor.execute("""
-        UPDATE users
-        SET budget = budget + ?
-        WHERE user_id = ?
-    """, (amount, to_user_id))
-
-    if cursor.rowcount == 0:
-        connection.rollback()
+    finally:
+        cursor.close()
         connection.close()
-        return False
-
-    connection.commit()
-    connection.close()
-
-    return True
 
 
 # ==============================
@@ -568,18 +803,23 @@ def transfer_budget(from_user_id, to_user_id, amount):
 # ==============================
 
 def get_last_mine_payout_date():
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT last_payout_date
-        FROM mine_income_state
-        WHERE id = 1
-    """)
+    try:
 
-    result = cursor.fetchone()
+        cursor.execute("""
+            SELECT last_payout_date
+            FROM mine_income_state
+            WHERE id = 1
+        """)
 
-    connection.close()
+        result = cursor.fetchone()
+
+    finally:
+        cursor.close()
+        connection.close()
 
     if result is None:
         return None
@@ -587,18 +827,35 @@ def get_last_mine_payout_date():
     return result[0]
 
 
+# ==============================
+# ثبت آخرین پرداخت معدن
+# ==============================
+
 def set_last_mine_payout_date(date):
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO mine_income_state
-        (id, last_payout_date)
-        VALUES (1, ?)
-        ON CONFLICT(id)
-        DO UPDATE SET
-            last_payout_date = excluded.last_payout_date
-    """, (date,))
+    try:
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            INSERT INTO mine_income_state
+            (id, last_payout_date)
+            VALUES (1, %s)
+
+            ON CONFLICT (id)
+
+            DO UPDATE SET
+                last_payout_date = EXCLUDED.last_payout_date
+        """, (date,))
+
+        connection.commit()
+
+    finally:
+        cursor.close()
+        connection.close()
+
+
+# ==============================
+# پایان Database
+# ==============================
