@@ -32,7 +32,7 @@ STATEMENT_GROUP_ID = "@jang_jahani_bb"
 # تایید خودکار بیانیه‌ها
 # True  = مستقیم منتشر شود
 # False = برای تایید ادمین ارسال شود
-AUTO_APPROVE_STATEMENTS = True
+AUTO_APPROVE_STATEMENTS = False
 
 # ==============================
 # تنظیمات جوین اجباری
