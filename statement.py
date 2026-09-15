@@ -288,6 +288,60 @@ def handle_update(update):
             # ذخیره متن بیانیه
             session["statement_text"] = statement_text
 
+            # ==================================
+            # حالت انتشار خودکار
+            # ==================================
+
+            auto_approve = getattr(
+                config,
+                "AUTO_APPROVE_STATEMENTS",
+                False
+            )
+
+            if auto_approve:
+
+                # انتشار مستقیم در کانال و گروه
+                published = publish_statement(
+                    user_id,
+                    statement_text
+                )
+
+                if not published:
+
+                    statement_sessions.pop(
+                        user_id,
+                        None
+                    )
+
+                    edit_message(
+                        session["chat_id"],
+                        session["message_id"],
+                        "❌ انتشار بیانیه با خطا مواجه شد.\n\n"
+                        "لطفاً دوباره تلاش کنید."
+                    )
+
+                    return
+
+                # اطلاع به کاربر
+                edit_message(
+                    session["chat_id"],
+                    session["message_id"],
+                    "✅ بیانیه شما با موفقیت منتشر شد.\n\n"
+                    "📢 بیانیه در کانال و گروه منتشر شد."
+                )
+
+                # پاک کردن وضعیت
+                statement_sessions.pop(
+                    user_id,
+                    None
+                )
+
+                return
+
+            # ==================================
+            # حالت تأیید دستی
+            # ==================================
+
             # ارسال برای ادمین‌ها
             success = send_statement_to_admin(
                 user_id,
