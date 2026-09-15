@@ -9,14 +9,21 @@ import config
 # ارسال پیام از bot.py
 send_message = None
 edit_message = None
+calculate_defense_power = None
 
 
-def setup(send_message_function, edit_message_function):
+def setup(
+    send_message_function,
+    edit_message_function,
+    defense_power_function=None
+):
     global send_message
     global edit_message
+    global calculate_defense_power
 
     send_message = send_message_function
     edit_message = edit_message_function
+    calculate_defense_power = defense_power_function
 
 
 # =========================
@@ -200,6 +207,17 @@ def show_country_dashboard(
 
     daily_income = daily_mine_income
 
+    # =========================
+    # قدرت دفاعی کشور
+    # =========================
+
+    if calculate_defense_power is not None:
+        defense_power = calculate_defense_power(
+            chat_id
+        )
+    else:
+        defense_power = 0
+
     text = (
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🏛️ *داشبورد فرماندهی*\n"
@@ -208,7 +226,8 @@ def show_country_dashboard(
         f"🌍 *{country}*\n"
         f"❤️ HP: `{hp}%`\n"
         f"💰 درآمد روزانه: `{daily_income:,}`\n"
-        f"🏦 بودجه دولت: `{budget:,}`\n\n"
+        f"🏦 بودجه دولت: `{budget:,}`\n"
+        f"🛡️ قدرت دفاعی: `{defense_power:,}`\n\n"
 
         "🛢️ درآمد نفتی روزانه: `0`\n"
         "🛢️ ذخایر نفت: `0`\n"
