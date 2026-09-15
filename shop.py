@@ -168,18 +168,29 @@ def show_shop(chat_id, message_id=None):
         "فرمانده، دسته مورد نظر را انتخاب کن:"
     )
 
+    keyboard = keyboards.shop_keyboard()
+
+    keyboard["inline_keyboard"].append(
+        [
+            {
+                "text": "🗑️ خالی کردن سبد",
+                "callback_data": "shop_clear_cart"
+            }
+        ]
+    )
+
     if message_id is not None:
         edit_message(
             chat_id,
             message_id,
             text,
-            keyboards.shop_keyboard()
+            keyboard
         )
     else:
         send_message(
             chat_id,
             text,
-            keyboards.shop_keyboard()
+            keyboard
         )
 
 
@@ -906,3 +917,5 @@ def handle_update(update):
         )
 
         return
+
+تنها تغییر واقعی در "show_shop()" است: اول "keyboards.shop_keyboard()" داخل "keyboard" قرار گرفته و همان کیبورد با یک دکمه‌ی "shop_clear_cart" در انتهایش استفاده می‌شود. بقیه منطق فایل همان چیزی است که فرستادی.
