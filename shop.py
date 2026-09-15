@@ -4,6 +4,7 @@
 
 import keyboards
 import database
+import reports
 
 
 send_message = None
@@ -538,6 +539,22 @@ def checkout(chat_id, message_id):
     # =========================
 
     new_user = database.get_user(chat_id)
+
+    # =========================
+    # گزارش خرید
+    # =========================
+
+    purchase_items = {}
+
+    for item in cart.values():
+
+        purchase_items[item["id"]] = item["quantity"]
+
+    reports.send_purchase_report(
+        user["country"],
+        purchase_items,
+        total_price
+    )
 
     cancel_cart(chat_id)
 
