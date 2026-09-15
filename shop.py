@@ -390,11 +390,22 @@ def show_cart(chat_id, message_id):
         "برای حذف یک آیتم، روی دکمه همان آیتم بزن:"
     )
 
+    cart_keyboard = keyboards.cart_keyboard(cart_items)
+
+    cart_keyboard["inline_keyboard"].append(
+        [
+            {
+                "text": "🗑️ خالی کردن سبد",
+                "callback_data": "shop_clear_cart"
+            }
+        ]
+    )
+
     edit_message(
         chat_id,
         message_id,
         text,
-        keyboards.cart_keyboard(cart_items)
+        cart_keyboard
     )
 
 
@@ -779,6 +790,42 @@ def handle_update(update):
         show_cart(
             chat_id,
             message_id
+        )
+
+        return
+
+    # =========================
+    # خالی کردن کامل سبد
+    # =========================
+
+    if data == "shop_clear_cart":
+
+        cancel_cart(chat_id)
+
+        text = (
+            "🗑️ سبد خرید خالی شد."
+        )
+
+        edit_message(
+            chat_id,
+            message_id,
+            text,
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "🛍️ برگشت به بازار",
+                            "callback_data": "shop_menu"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "🌍 منوی اصلی",
+                            "callback_data": "back_main_menu"
+                        }
+                    ]
+                ]
+            }
         )
 
         return
