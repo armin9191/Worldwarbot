@@ -5,57 +5,164 @@ from config import BOT_TOKEN, API_URL
 
 import database
 
-# =========================
+
+# =========================================================
 # تنظیمات اصلی ربات
-# =========================
+# =========================================================
 
 BASE_URL = API_URL
 
+# =========================================================
+# Session مشترک
+# =========================================================
+# به جای ساختن اتصال جدید برای هر درخواست،
+# از یک Session مشترک استفاده می‌کنیم.
+# این کار تعداد زیادی از درخواست‌های API را سریع‌تر می‌کند.
+
+SESSION = requests.Session()
+
+SESSION.headers.update({
+    "Content-Type": "application/json"
+})
+
+
+# =========================================================
+# Cache بررسی عضویت اجباری
+# =========================================================
+
+JOIN_CACHE = {}
+
+# مدت اعتبار Cache عضویت
+# کوتاه نگه داشته شده تا منطق فعلی تقریباً همان باقی بماند.
+JOIN_CACHE_TTL = 60
+
+
+def is_join_cached(user_id):
+    """
+    بررسی می‌کند آیا وضعیت عضویت کاربر
+    اخیراً بررسی شده است یا خیر.
+    """
+
+    cached_time = JOIN_CACHE.get(user_id)
+
+    if cached_time is None:
+        return False
+
+    if time.monotonic() - cached_time < JOIN_CACHE_TTL:
+        return True
+
+    JOIN_CACHE.pop(user_id, None)
+
+    return False
+
+
+def cache_join(user_id):
+    """
+    ذخیره موفقیت بررسی عضویت.
+    """
+
+    JOIN_CACHE[user_id] = time.monotonic()
+
+
+def clear_join_cache(user_id):
+    """
+    حذف Cache عضویت کاربر.
+    """
+
+    JOIN_CACHE.pop(user_id, None)
+
+
+# =========================================================
+# درخواست API
+# =========================================================
 
 def api_request(method, data=None):
     """
-    ارسال درخواست به API بله
+    ارسال سریع درخواست به API بله.
     """
+
     url = f"{BASE_URL}/{method}"
 
     try:
-        response = requests.post(
+        response = SESSION.post(
             url,
             json=data or {},
-            timeout=30
+            timeout=(3, 10)
         )
+
+        response.raise_for_status()
 
         return response.json()
 
     except requests.RequestException as error:
-        print(f"API Error: {error}")
+        print(f"API Error [{method}]: {error}")
         return None
 
     except ValueError:
-        print("API پاسخ معتبر JSON برنگرداند.")
+        print(f"API JSON Error [{method}]")
         return None
 
 
-# =========================
+# =========================================================
+# پاسخ فوری به Callback
+# =========================================================
+
+def answer_callback(callback_id, text=None, show_alert=False):
+    """
+    پاسخ فوری به کلیک روی دکمه Inline.
+
+    باعث می‌شود حالت Loading دکمه سریعاً بسته شود.
+    """
+
+    if not callback_id:
+        return None
+
+    data = {
+        "callback_query_id": callback_id
+    }
+
+    if text:
+        data["text"] = text
+
+    if show_alert:
+        data["show_alert"] = True
+
+    return api_request(
+        "answerCallbackQuery",
+        data
+    )
+
+
+# =========================================================
 # دریافت آپدیت‌ها
-# =========================
+# =========================================================
 
 def get_updates(offset=None):
+
     data = {
-        "timeout": 25
+        "timeout": 25,
+        "limit": 100,
+        "allowed_updates": [
+            "message",
+            "callback_query"
+        ]
     }
 
     if offset is not None:
         data["offset"] = offset
 
-    return api_request("getUpdates", data)
+    return api_request(
+        "getUpdates",
+        data
+    )
 
 
-# =========================
+# =========================================================
 # ارسال پیام
-# =========================
+# =========================================================
 
 def send_message(chat_id, text, reply_markup=None):
+
     data = {
         "chat_id": chat_id,
         "text": text
@@ -64,14 +171,18 @@ def send_message(chat_id, text, reply_markup=None):
     if reply_markup is not None:
         data["reply_markup"] = reply_markup
 
-    return api_request("sendMessage", data)
+    return api_request(
+        "sendMessage",
+        data
+    )
 
 
-# =========================
+# =========================================================
 # ویرایش پیام
-# =========================
+# =========================================================
 
 def edit_message(chat_id, message_id, text, reply_markup=None):
+
     data = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -81,48 +192,58 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
     if reply_markup is not None:
         data["reply_markup"] = reply_markup
 
-    return api_request("editMessageText", data)
+    return api_request(
+        "editMessageText",
+        data
+    )
 
 
-# =========================
+# =========================================================
 # سیستم اتصال فایل‌ها
-# =========================
+# =========================================================
 
 modules = []
 
 
 def register_module(module):
-    """
-    ثبت یک فایل قابلیت در bot.py
-    """
+
     if module not in modules:
         modules.append(module)
 
     print(f"Module loaded: {module.__name__}")
 
 
-# =========================
-# اتصال ماژول Start
-# =========================
+# =========================================================
+# Start
+# =========================================================
 
 import start
 
-start.setup(send_message, edit_message)
+start.setup(
+    send_message,
+    edit_message
+)
+
 register_module(start)
 
 
-# =========================
-# اتصال ماژول Shop
-# =========================
+# =========================================================
+# Shop
+# =========================================================
 
 import shop
 
-shop.setup(send_message, edit_message)
+shop.setup(
+    send_message,
+    edit_message
+)
+
 register_module(shop)
 
-# =========================
-# اتصال ماژول Export / Import
-# =========================
+
+# =========================================================
+# Export / Import
+# =========================================================
 
 import export_import
 
@@ -134,29 +255,38 @@ export_import.setup(
 
 register_module(export_import)
 
-# =========================
-# اتصال ماژول Attack
-# =========================
+
+# =========================================================
+# Attack
+# =========================================================
 
 import attack
 
-attack.setup(send_message, edit_message)
+attack.setup(
+    send_message,
+    edit_message
+)
+
 register_module(attack)
 
 
-# =========================
-# اتصال ماژول Statement
-# =========================
+# =========================================================
+# Statement
+# =========================================================
 
 import statement
 
-statement.setup(send_message, edit_message)
+statement.setup(
+    send_message,
+    edit_message
+)
+
 register_module(statement)
 
 
-# =========================
-# اتصال ماژول مدیریت کشورها
-# =========================
+# =========================================================
+# Country Admin
+# =========================================================
 
 import country_admin
 
@@ -168,9 +298,9 @@ country_admin.setup(
 register_module(country_admin)
 
 
-# =========================
-# اتصال ماژول Join Required
-# =========================
+# =========================================================
+# Join Required
+# =========================================================
 
 import join_required
 
@@ -183,27 +313,36 @@ join_required.setup(
 register_module(join_required)
 
 
-# =========================
-# اتصال ماژول Mine Income
-# =========================
+# =========================================================
+# Mine Income
+# =========================================================
 
 import mine_income
 
-mine_income.setup(send_message)
+mine_income.setup(
+    send_message
+)
+
 register_module(mine_income)
 
-# =========================
-# اتصال ماژول Alliance
-# =========================
+
+# =========================================================
+# Alliance
+# =========================================================
 
 import alliance
 
-alliance.setup(send_message, edit_message)
+alliance.setup(
+    send_message,
+    edit_message
+)
+
 register_module(alliance)
 
-# =========================
-# اتصال ماژول International Companies
-# =========================
+
+# =========================================================
+# International Companies
+# =========================================================
 
 import companies
 
@@ -215,53 +354,76 @@ companies.setup(
 register_module(companies)
 
 
+# =========================================================
+# Database
+# =========================================================
+
 database.init_db()
 
 
-# =========================
+# =========================================================
 # بررسی جوین اجباری
-# =========================
+# =========================================================
 
 def check_join_required(update):
 
-    # =========================
-    # آپدیت پیام
-    # =========================
+    # =====================================================
+    # Message
+    # =====================================================
 
     if "message" in update:
 
         message = update["message"]
 
-        chat_id = message["chat"]["id"]
-        user_id = message["from"]["id"]
+        chat = message.get("chat", {})
+        user = message.get("from", {})
 
-        text = message.get("text", "").strip()
+        chat_id = chat.get("id")
+        user_id = user.get("id")
 
-        # =========================
+        text = message.get(
+            "text",
+            ""
+        ).strip()
+
+        chat_type = chat.get("type")
+
         # فقط PV
-        # =========================
-
-        chat_type = message["chat"].get("type")
-
-        # اگر پیام داخل گروه یا کانال باشد
-        # جوین اجباری بررسی نمی‌شود
         if chat_type != "private":
             return True
 
-        # -------------------------
-        # اگر /start بود
-        # -------------------------
+        # =================================================
+        # /start
+        # =================================================
 
         if text == "/start":
 
-            return join_required.handle_start(
+            # برای /start بررسی واقعی انجام می‌شود
+            # تا کاربر بتواند عضویت خود را تأیید کند.
+
+            clear_join_cache(user_id)
+
+            allowed = join_required.handle_start(
                 chat_id,
                 user_id
             )
 
-        # -------------------------
-        # پیام‌های معمولی
-        # -------------------------
+            if allowed:
+                cache_join(user_id)
+
+            return allowed
+
+        # =================================================
+        # پیام معمولی
+        # =================================================
+
+        # اگر اخیراً عضویت تأیید شده،
+        # دوباره API نزن.
+
+        if is_join_cached(user_id):
+            return True
+
+        # بررسی واقعی عضویت
 
         if not join_required.is_user_joined(user_id):
 
@@ -271,37 +433,74 @@ def check_join_required(update):
 
             return False
 
+        # عضویت تأیید شد
+        cache_join(user_id)
+
         return True
 
-    # =========================
-    # آپدیت Callback
-    # =========================
+    # =====================================================
+    # Callback Query
+    # =====================================================
 
     if "callback_query" in update:
 
         callback = update["callback_query"]
 
-        user_id = callback["from"]["id"]
+        callback_id = callback.get(
+            "id"
+        )
 
-        message = callback.get("message")
+        user = callback.get(
+            "from",
+            {}
+        )
+
+        user_id = user.get(
+            "id"
+        )
+
+        message = callback.get(
+            "message"
+        )
+
+        # =================================================
+        # پاسخ فوری به کلیک
+        # =================================================
+
+        answer_callback(
+            callback_id
+        )
 
         if message is None:
             return False
 
-        chat_id = message["chat"]["id"]
+        chat = message.get(
+            "chat",
+            {}
+        )
 
-        # =========================
-        # فقط Callback مربوط به PV
-        # =========================
+        chat_id = chat.get(
+            "id"
+        )
 
-        chat_type = message["chat"].get("type")
+        chat_type = chat.get(
+            "type"
+        )
 
+        # فقط PV
         if chat_type != "private":
             return True
 
-        # -------------------------
-        # بررسی عضویت
-        # -------------------------
+        # =================================================
+        # Cache
+        # =================================================
+
+        if is_join_cached(user_id):
+            return True
+
+        # =================================================
+        # بررسی عضویت واقعی
+        # =================================================
 
         if not join_required.is_user_joined(user_id):
 
@@ -311,20 +510,27 @@ def check_join_required(update):
 
             return False
 
+        # =================================================
+        # ذخیره Cache
+        # =================================================
+
+        cache_join(user_id)
+
         return True
 
-    # =========================
-    # آپدیت‌های دیگر
-    # =========================
+    # =====================================================
+    # سایر آپدیت‌ها
+    # =====================================================
 
     return True
 
 
-# =========================
+# =========================================================
 # اجرای ربات
-# =========================
+# =========================================================
 
 def run_bot():
+
     print("================================")
     print("World War Bot")
     print("Bot is starting...")
@@ -333,92 +539,180 @@ def run_bot():
     offset = None
 
     while True:
-        try:
-            result = get_updates(offset)
 
-            # =========================
-            # بررسی درآمد روزانه معادن
-            # =========================
+        try:
+
+            # =================================================
+            # دریافت آپدیت
+            # =================================================
+
+            result = get_updates(
+                offset
+            )
+
+            # =================================================
+            # بررسی درآمد روزانه
+            # =================================================
 
             try:
+
                 mine_income.check_payout()
 
             except Exception as error:
+
                 print(
                     f"Mine Income Error: {error}"
                 )
 
+            # =================================================
+            # اگر پاسخ خالی بود
+            # =================================================
+
             if not result:
-                time.sleep(2)
+
+                # قبلاً اینجا 2 ثانیه sleep داشتیم.
+                # حذف شد تا بعد از timeout تأخیر اضافه نداشته باشیم.
+
                 continue
+
+            # =================================================
+            # API Error
+            # =================================================
 
             if not result.get("ok"):
-                print("API Error:", result)
-                time.sleep(3)
+
+                print(
+                    "API Error:",
+                    result
+                )
+
+                # تأخیر فقط در صورت خطای واقعی API
+                time.sleep(1)
+
                 continue
 
-            updates = result.get("result", [])
+            # =================================================
+            # Updates
+            # =================================================
+
+            updates = result.get(
+                "result",
+                []
+            )
+
+            if not updates:
+                continue
+
+            # =================================================
+            # پردازش آپدیت‌ها
+            # =================================================
 
             for update in updates:
-                offset = update["update_id"] + 1
 
-                # =========================
-                # بررسی جوین اجباری
-                # =========================
+                offset = (
+                    update["update_id"] + 1
+                )
+
+                # =================================================
+                # بررسی Join
+                # =================================================
 
                 try:
-                    allowed = check_join_required(update)
+
+                    allowed = check_join_required(
+                        update
+                    )
 
                     if not allowed:
                         continue
 
                 except Exception as error:
+
                     print(
                         f"Join Required Error: {error}"
                     )
 
                     continue
 
-                # =========================
+                # =================================================
                 # جلوگیری از اجرای ربات
                 # داخل گروه و کانال
-                # =========================
+                # =================================================
 
                 if "message" in update:
 
-                    chat_type = update["message"]["chat"].get("type")
+                    chat_type = (
+                        update["message"]
+                        .get("chat", {})
+                        .get("type")
+                    )
 
                     if chat_type != "private":
                         continue
 
                 if "callback_query" in update:
 
-                    callback_message = update["callback_query"].get("message")
+                    callback_message = (
+                        update["callback_query"]
+                        .get("message")
+                    )
 
                     if callback_message is not None:
 
-                        chat_type = callback_message["chat"].get("type")
+                        chat_type = (
+                            callback_message
+                            .get("chat", {})
+                            .get("type")
+                        )
 
                         if chat_type != "private":
                             continue
 
-                # =========================
+                # =================================================
                 # اجرای ماژول‌ها
-                # =========================
+                # =================================================
 
                 for module in modules:
-                    try:
-                        module.handle_update(update)
 
-                    except Exception as error:
-                        print(
-                            f"Error in {module.__name__}: {error}"
+                    try:
+
+                        module.handle_update(
+                            update
                         )
 
+                    except Exception as error:
+
+                        print(
+                            f"Error in "
+                            f"{module.__name__}: "
+                            f"{error}"
+                        )
+
+
         except KeyboardInterrupt:
-            print("\nBot stopped.")
+
+            print(
+                "\nBot stopped."
+            )
+
             break
 
+
         except Exception as error:
-            print(f"Main Error: {error}")
-            time.sleep(5)
+
+            print(
+                f"Main Error: {error}"
+            )
+
+            # فقط در خطای غیرمنتظره
+            # یک ثانیه صبر می‌کنیم.
+
+            time.sleep(1)
+
+
+# =========================================================
+# Start Bot
+# =========================================================
+
+if __name__ == "__main__":
+    run_bot()
