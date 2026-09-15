@@ -217,11 +217,13 @@ def register_module(module):
 # Start
 # =========================================================
 
+import military
 import start
 
 start.setup(
     send_message,
-    edit_message
+    edit_message,
+    military.calculate_defense_power
 )
 
 register_module(start)
