@@ -917,5 +917,3 @@ def handle_update(update):
         )
 
         return
-
-تنها تغییر واقعی در "show_shop()" است: اول "keyboards.shop_keyboard()" داخل "keyboard" قرار گرفته و همان کیبورد با یک دکمه‌ی "shop_clear_cart" در انتهایش استفاده می‌شود. بقیه منطق فایل همان چیزی است که فرستادی.
