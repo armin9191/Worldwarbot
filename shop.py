@@ -247,6 +247,19 @@ def show_category(chat_id, message_id, category):
             items
         )
 
+    # =========================
+    # دکمه خالی کردن سبد
+    # =========================
+
+    keyboard["inline_keyboard"].append(
+        [
+            {
+                "text": "🗑️ خالی کردن سبد",
+                "callback_data": "shop_clear_cart"
+            }
+        ]
+    )
+
     edit_message(
         chat_id,
         message_id,
@@ -1045,3 +1058,7 @@ def handle_update(update):
         )
 
         return
+
+این نسخه فقط داخل "show_category" دکمه رو اضافه کرده؛ هندلر "shop_clear_cart" همون قبلیه و تغییر دیگه‌ای نداره.
+
+یه نکته: الان این دکمه در صفحه‌ای دیده میشه که مثلاً وارد «🚀 موشک» یا «✈️ نیروی هوایی» میشی و لیست آیتم‌ها رو می‌بینی.
