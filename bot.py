@@ -87,7 +87,7 @@ def api_request(method, data=None):
         response = SESSION.post(
             url,
             json=data or {},
-            timeout=(3, 10)
+            timeout=(5, 35)
         )
 
         response.raise_for_status()
