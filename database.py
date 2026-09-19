@@ -2,7 +2,9 @@
 # World War - Database
 # ==============================
 
+
 import sqlite3
+import time
 
 from config import DATABASE_NAME
 
@@ -11,6 +13,7 @@ from config import DATABASE_NAME
 # اتصال به دیتابیس
 # =========================
 
+
 def get_connection():
     return sqlite3.connect(DATABASE_NAME)
 
@@ -18,6 +21,7 @@ def get_connection():
 # =========================
 # ساخت جداول
 # =========================
+
 
 def init_db():
     connection = get_connection()
@@ -32,6 +36,12 @@ def init_db():
             hp INTEGER DEFAULT 100
         )
     """)
+
+    # اضافه کردن ستون زمان انتخاب کشور (اگر وجود نداشت)
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN country_selected_at INTEGER")
+    except:
+        pass  # ستون از قبل وجود دارد
 
     # جدول موجودی
     cursor.execute("""
@@ -59,6 +69,7 @@ def init_db():
 # ساخت کاربر
 # =========================
 
+
 def create_user(user_id):
     connection = get_connection()
     cursor = connection.cursor()
@@ -82,12 +93,13 @@ def create_user(user_id):
 # گرفتن اطلاعات کاربر
 # =========================
 
+
 def get_user(user_id):
     connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT user_id, country, budget, hp
+        SELECT user_id, country, budget, hp, country_selected_at
         FROM users
         WHERE user_id = ?
     """, (user_id,))
@@ -103,13 +115,15 @@ def get_user(user_id):
         "user_id": user[0],
         "country": user[1],
         "budget": user[2],
-        "hp": user[3]
+        "hp": user[3],
+        "country_selected_at": user[4]
     }
 
 
 # =========================
 # گرفتن یا ساخت کاربر
 # =========================
+
 
 def get_or_create_user(user_id):
     user = get_user(user_id)
@@ -124,6 +138,7 @@ def get_or_create_user(user_id):
 # =========================
 # گرفتن صاحب یک کشور
 # =========================
+
 
 def get_country_owner(country):
     connection = get_connection()
@@ -149,6 +164,7 @@ def get_country_owner(country):
 # =========================
 # بررسی آزاد بودن کشور
 # =========================
+
 
 def is_country_available(country, user_id=None):
     connection = get_connection()
@@ -178,6 +194,7 @@ def is_country_available(country, user_id=None):
 # =========================
 # انتخاب کشور امن
 # =========================
+
 
 def set_country(user_id, country):
     """
@@ -237,14 +254,15 @@ def set_country(user_id, country):
             connection.commit()
             return "occupied"
 
-        # انتخاب کشور
+        # انتخاب کشور + ثبت زمان تأسیس
         cursor.execute("""
             UPDATE users
-            SET country = ?
+            SET country = ?, country_selected_at = ?
             WHERE user_id = ?
             AND country IS NULL
         """, (
             country,
+            int(time.time()),
             user_id
         ))
 
@@ -268,6 +286,7 @@ def set_country(user_id, country):
 # تغییر بودجه
 # =========================
 
+
 def update_budget(user_id, budget):
     connection = get_connection()
     cursor = connection.cursor()
@@ -285,6 +304,7 @@ def update_budget(user_id, budget):
 # =========================
 # اضافه کردن بودجه
 # =========================
+
 
 def add_budget(user_id, amount):
     if amount <= 0:
@@ -310,6 +330,7 @@ def add_budget(user_id, amount):
 # =========================
 # کم کردن بودجه
 # =========================
+
 
 def decrease_budget(user_id, amount):
     connection = get_connection()
@@ -338,6 +359,7 @@ def decrease_budget(user_id, amount):
 # تغییر HP
 # =========================
 
+
 def update_hp(user_id, hp):
     connection = get_connection()
     cursor = connection.cursor()
@@ -355,6 +377,7 @@ def update_hp(user_id, hp):
 # =========================
 # اضافه کردن به موجودی
 # =========================
+
 
 def add_inventory(user_id, item_id, quantity):
     connection = get_connection()
@@ -380,6 +403,7 @@ def add_inventory(user_id, item_id, quantity):
 # =========================
 # کم کردن از موجودی
 # =========================
+
 
 def decrease_inventory(user_id, item_id, quantity):
     connection = get_connection()
@@ -416,6 +440,7 @@ def decrease_inventory(user_id, item_id, quantity):
 # گرفتن تعداد یک آیتم
 # =========================
 
+
 def get_inventory_item(user_id, item_id):
     connection = get_connection()
     cursor = connection.cursor()
@@ -443,6 +468,7 @@ def get_inventory_item(user_id, item_id):
 # =========================
 # گرفتن کل موجودی کاربر
 # =========================
+
 
 def get_inventory(user_id):
     connection = get_connection()
@@ -472,12 +498,13 @@ def get_inventory(user_id):
 # کشورهای انتخاب شده توسط بازیکنان
 # ==============================
 
+
 def get_selected_countries():
     connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT user_id, country
+        SELECT user_id, country, country_selected_at
         FROM users
         WHERE country IS NOT NULL
         ORDER BY country
@@ -489,10 +516,11 @@ def get_selected_countries():
 
     countries = []
 
-    for user_id, country in rows:
+    for user_id, country, selected_at in rows:
         countries.append({
             "user_id": user_id,
-            "country": country
+            "country": country,
+            "country_selected_at": selected_at
         })
 
     return countries
@@ -502,6 +530,7 @@ def get_selected_countries():
 # ریست کامل بازیکن بعد از نابودی کشور
 # ==============================
 
+
 def reset_player_after_defeat(user_id):
     connection = get_connection()
     cursor = connection.cursor()
@@ -510,7 +539,8 @@ def reset_player_after_defeat(user_id):
         UPDATE users
         SET country = NULL,
             budget = 200000000,
-            hp = 100
+            hp = 100,
+            country_selected_at = NULL
         WHERE user_id = ?
     """, (user_id,))
 
@@ -526,6 +556,7 @@ def reset_player_after_defeat(user_id):
 # =========================
 # انتقال بودجه
 # =========================
+
 
 def transfer_budget(from_user_id, to_user_id, amount):
     if amount <= 0:
@@ -566,6 +597,7 @@ def transfer_budget(from_user_id, to_user_id, amount):
 # ==============================
 # درآمد روزانه معادن
 # ==============================
+
 
 def get_last_mine_payout_date():
     connection = get_connection()
