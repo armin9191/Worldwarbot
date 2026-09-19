@@ -2,14 +2,27 @@
 # World War - Attack System
 # ==============================
 
+
 import database
 import keyboards
 import reports
+import time
+
+
+# ==============================
+# مدت محافظت کشورهای تازه‌تأسیس
+# ==============================
+# برای تست: ۱ دقیقه
+PROTECTION_SECONDS = 60          # ۱ دقیقه
+
+# وقتی خواستی برگردونی به ۵ ساعت، این خط رو بگذار:
+# PROTECTION_SECONDS = 5 * 3600
 
 
 # ==============================
 # وزن قدرت حمله تجهیزات
 # ==============================
+
 
 ATTACK_WEIGHTS = {
     # Ground
@@ -73,6 +86,7 @@ ATTACK_WEIGHTS = {
 # وزن دفاعی پدافندها
 # ==============================
 
+
 DEFENSE_WEIGHTS = {
     "patriot": 40,
     "phalanx": 35,
@@ -83,6 +97,7 @@ DEFENSE_WEIGHTS = {
 # ==============================
 # محاسبه قدرت نظامی
 # ==============================
+
 
 def calculate_military_power(user_id):
     inventory = database.get_inventory(user_id)
@@ -100,6 +115,7 @@ def calculate_military_power(user_id):
 # محاسبه قدرت دفاعی
 # ==============================
 
+
 def calculate_defense_power(user_id):
     inventory = database.get_inventory(user_id)
 
@@ -115,6 +131,7 @@ def calculate_defense_power(user_id):
 # ==============================
 # محاسبه قدرت حمله بر اساس درصد
 # ==============================
+
 
 def calculate_attack_power(user_id, percent):
     military_power = calculate_military_power(user_id)
@@ -133,6 +150,7 @@ def calculate_attack_power(user_id, percent):
 # ==============================
 # محاسبه نتیجه یک حمله
 # ==============================
+
 
 def calculate_attack_result(attacker_id, defender_id, percent):
     attack_power = calculate_attack_power(
@@ -159,6 +177,7 @@ def calculate_attack_result(attacker_id, defender_id, percent):
 # ==============================
 # مصرف تجهیزات هجومی
 # ==============================
+
 
 def consume_attack_equipment(user_id, percent):
     inventory = database.get_inventory(user_id)
@@ -201,6 +220,7 @@ def consume_attack_equipment(user_id, percent):
 # ==============================
 # مصرف پدافند دشمن
 # ==============================
+
 
 def consume_defense_equipment(user_id, attack_power):
     inventory = database.get_inventory(user_id)
@@ -258,6 +278,7 @@ def consume_defense_equipment(user_id, attack_power):
 # ==============================
 # اجرای کامل حمله
 # ==============================
+
 
 def execute_attack(attacker_id, defender_id, percent):
 
@@ -370,17 +391,19 @@ def execute_attack(attacker_id, defender_id, percent):
 # دریافت کشورهای قابل حمله
 # ==============================
 
+
 def get_attack_targets(attacker_id):
     selected_countries = database.get_selected_countries()
 
     attacker = database.get_user(attacker_id)
 
     if attacker is None:
-        return []
-
-    attacker_country = attacker["country"]
+        return [], 0
 
     targets = []
+    protected_count = 0
+
+    current_time = time.time()
 
     for player in selected_countries:
 
@@ -388,14 +411,24 @@ def get_attack_targets(attacker_id):
         if player["user_id"] == attacker_id:
             continue
 
+        # بررسی محافظت تازه‌تأسیس بودن
+        selected_at = player.get("country_selected_at")
+
+        if selected_at is not None:
+            age = current_time - selected_at
+            if age < PROTECTION_SECONDS:
+                protected_count += 1
+                continue  # مخفی کردن
+
         targets.append(player)
 
-    return targets
+    return targets, protected_count
 
 
 # ==============================
 # اتصال Attack به Bot
 # ==============================
+
 
 send_message = None
 edit_message = None
@@ -413,11 +446,12 @@ def setup(send_func, edit_func):
 # نمایش منوی حمله
 # ==============================
 
+
 def show_attack_menu(chat_id, message_id, user_id):
 
-    targets = get_attack_targets(user_id)
+    targets, protected_count = get_attack_targets(user_id)
 
-    if not targets:
+    if not targets and protected_count == 0:
         edit_message(
             chat_id,
             message_id,
@@ -426,10 +460,23 @@ def show_attack_menu(chat_id, message_id, user_id):
         )
         return
 
+    text = "💥 انتخاب کشور برای حمله:"
+
+    if protected_count > 0:
+        text += f"\n\n🔒 {protected_count} کشور تازه‌تأسیس دیده نمی‌شود (مخفی است)"
+
+    if not targets:
+        edit_message(
+            chat_id,
+            message_id,
+            text + "\n\n❌ هیچ کشور قابل حمله‌ای وجود ندارد."
+        )
+        return
+
     edit_message(
         chat_id,
         message_id,
-        "💥 انتخاب کشور برای حمله:",
+        text,
         keyboards.attack_targets_keyboard(targets)
     )
 
@@ -438,12 +485,14 @@ def show_attack_menu(chat_id, message_id, user_id):
 # وضعیت حمله کاربران
 # ==============================
 
+
 attack_sessions = {}
 
 
 # ==============================
 # دریافت آپدیت‌های حمله
 # ==============================
+
 
 def handle_update(update):
 
@@ -645,7 +694,7 @@ def handle_update(update):
             return
 
         # بررسی اینکه هنوز کشور در اختیار بازیکن است
-        targets = get_attack_targets(user_id)
+        targets, _ = get_attack_targets(user_id)
 
         valid_target = False
 
