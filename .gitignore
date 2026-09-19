@@ -1,0 +1,4 @@
+*.db
+worldwar.db
+*.sqlite
+*.sqlite3
