@@ -12,14 +12,19 @@ import time
 # ==============================
 # مدت محافظت کشورهای تازه‌تأسیس (ساعت)
 # ==============================
-PROTECTION_HOURS = 5
-PROTECTION_SECONDS = PROTECTION_HOURS * 3600
+PROTECTION_HOURS = 1
+PROTECTION_SECONDS = PROTECTION_HOURS * 60
+
+
+# ==============================
+# فاصله بین هر حمله
+# ==============================
+ATTACK_COOLDOWN_SECONDS = 5 * 60
 
 
 # ==============================
 # وزن قدرت حمله تجهیزات
 # ==============================
-
 
 ATTACK_WEIGHTS = {
     # Ground
@@ -83,7 +88,6 @@ ATTACK_WEIGHTS = {
 # وزن دفاعی پدافندها
 # ==============================
 
-
 DEFENSE_WEIGHTS = {
     "patriot": 40,
     "phalanx": 35,
@@ -94,7 +98,6 @@ DEFENSE_WEIGHTS = {
 # ==============================
 # محاسبه قدرت نظامی
 # ==============================
-
 
 def calculate_military_power(user_id):
     inventory = database.get_inventory(user_id)
@@ -112,7 +115,6 @@ def calculate_military_power(user_id):
 # محاسبه قدرت دفاعی
 # ==============================
 
-
 def calculate_defense_power(user_id):
     inventory = database.get_inventory(user_id)
 
@@ -128,7 +130,6 @@ def calculate_defense_power(user_id):
 # ==============================
 # محاسبه قدرت حمله بر اساس درصد
 # ==============================
-
 
 def calculate_attack_power(user_id, percent):
     military_power = calculate_military_power(user_id)
@@ -147,7 +148,6 @@ def calculate_attack_power(user_id, percent):
 # ==============================
 # محاسبه نتیجه یک حمله
 # ==============================
-
 
 def calculate_attack_result(attacker_id, defender_id, percent):
     attack_power = calculate_attack_power(
@@ -174,7 +174,6 @@ def calculate_attack_result(attacker_id, defender_id, percent):
 # ==============================
 # مصرف تجهیزات هجومی
 # ==============================
-
 
 def consume_attack_equipment(user_id, percent):
     inventory = database.get_inventory(user_id)
@@ -217,7 +216,6 @@ def consume_attack_equipment(user_id, percent):
 # ==============================
 # مصرف پدافند دشمن
 # ==============================
-
 
 def consume_defense_equipment(user_id, attack_power):
     inventory = database.get_inventory(user_id)
@@ -275,7 +273,6 @@ def consume_defense_equipment(user_id, attack_power):
 # ==============================
 # اجرای کامل حمله
 # ==============================
-
 
 def execute_attack(attacker_id, defender_id, percent):
 
@@ -368,6 +365,7 @@ def execute_attack(attacker_id, defender_id, percent):
     # ==================================
 
     if new_hp <= 0:
+
         database.reset_player_after_defeat(
             defender_id
         )
@@ -387,7 +385,6 @@ def execute_attack(attacker_id, defender_id, percent):
 # ==============================
 # دریافت کشورهای قابل حمله
 # ==============================
-
 
 def get_attack_targets(attacker_id):
     selected_countries = database.get_selected_countries()
@@ -412,9 +409,13 @@ def get_attack_targets(attacker_id):
         selected_at = player.get("country_selected_at")
 
         if selected_at is not None:
+
             age = current_time - selected_at
+
             if age < PROTECTION_SECONDS:
+
                 protected_count += 1
+
                 continue  # مخفی کردن
 
         targets.append(player)
@@ -426,12 +427,12 @@ def get_attack_targets(attacker_id):
 # اتصال Attack به Bot
 # ==============================
 
-
 send_message = None
 edit_message = None
 
 
 def setup(send_func, edit_func):
+
     global send_message
     global edit_message
 
@@ -440,56 +441,167 @@ def setup(send_func, edit_func):
 
 
 # ==============================
+# وضعیت حمله کاربران
+# ==============================
+
+attack_sessions = {}
+
+
+# ==============================
+# زمان آخرین حمله هر بازیکن
+# ==============================
+
+attack_cooldowns = {}
+
+
+# ==============================
+# بررسی زمان باقی‌مانده حمله
+# ==============================
+
+def get_attack_cooldown(user_id):
+
+    last_attack_time = attack_cooldowns.get(user_id)
+
+    if last_attack_time is None:
+        return 0
+
+    elapsed = time.time() - last_attack_time
+
+    remaining = ATTACK_COOLDOWN_SECONDS - elapsed
+
+    if remaining <= 0:
+
+        attack_cooldowns.pop(
+            user_id,
+            None
+        )
+
+        return 0
+
+    return int(remaining) + 1
+
+
+# ==============================
+# نمایش زمان باقی‌مانده
+# ==============================
+
+def format_cooldown(seconds):
+
+    minutes = seconds // 60
+    remaining_seconds = seconds % 60
+
+    return (
+        f"{minutes} دقیقه و "
+        f"{remaining_seconds} ثانیه"
+    )
+
+
+# ==============================
+# نمایش Cooldown
+# ==============================
+
+def show_attack_cooldown(
+    chat_id,
+    message_id,
+    user_id
+):
+
+    remaining = get_attack_cooldown(
+        user_id
+    )
+
+    if remaining <= 0:
+
+        show_attack_menu(
+            chat_id,
+            message_id,
+            user_id
+        )
+
+        return
+
+    text = (
+        "⏳ هنوز زمان حمله بعدی نرسیده!\n\n"
+        f"🕐 {format_cooldown(remaining)} "
+        "تا حمله بعدی باقی مانده."
+    )
+
+    back_keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "↩️ برگشت",
+                    "callback_data": "attack_cancel"
+                }
+            ]
+        ]
+    }
+
+    edit_message(
+        chat_id,
+        message_id,
+        text,
+        back_keyboard
+    )
+
+
+# ==============================
 # نمایش منوی حمله
 # ==============================
 
+def show_attack_menu(
+    chat_id,
+    message_id,
+    user_id
+):
 
-def show_attack_menu(chat_id, message_id, user_id):
-
-    targets, protected_count = get_attack_targets(user_id)
+    targets, protected_count = get_attack_targets(
+        user_id
+    )
 
     if not targets and protected_count == 0:
+
         edit_message(
             chat_id,
             message_id,
             "💥 حمله نظامی\n\n"
             "❌ در حال حاضر هیچ کشور دیگری برای حمله وجود ندارد."
         )
+
         return
 
     text = "💥 انتخاب کشور برای حمله:"
 
     if protected_count > 0:
-        text += f"\n\n🔒 {protected_count} کشور تازه‌تأسیس دیده نمی‌شود (مخفی است)"
+
+        text += (
+            f"\n\n🔒 {protected_count} کشور تازه‌تأسیس "
+            "دیده نمی‌شود (مخفی است)"
+        )
 
     if not targets:
+
         edit_message(
             chat_id,
             message_id,
             text + "\n\n❌ هیچ کشور قابل حمله‌ای وجود ندارد."
         )
+
         return
 
     edit_message(
         chat_id,
         message_id,
         text,
-        keyboards.attack_targets_keyboard(targets)
+        keyboards.attack_targets_keyboard(
+            targets
+        )
     )
-
-
-# ==============================
-# وضعیت حمله کاربران
-# ==============================
-
-
-attack_sessions = {}
 
 
 # ==============================
 # دریافت آپدیت‌های حمله
 # ==============================
-
 
 def handle_update(update):
 
@@ -506,9 +618,14 @@ def handle_update(update):
         user_id = message["from"]["id"]
         message_id = message["message_id"]
 
-        text = message.get("text", "").strip()
+        text = message.get(
+            "text",
+            ""
+        ).strip()
 
-        session = attack_sessions.get(user_id)
+        session = attack_sessions.get(
+            user_id
+        )
 
         if session is None:
             return
@@ -518,21 +635,26 @@ def handle_update(update):
 
             try:
                 percent = int(text)
+
             except ValueError:
+
                 edit_message(
                     session["chat_id"],
                     session["message_id"],
                     "❌ درصد وارد شده معتبر نیست.\n\n"
                     "لطفاً یک عدد بین 1 تا 100 وارد کنید."
                 )
+
                 return
 
             if percent < 1 or percent > 100:
+
                 edit_message(
                     session["chat_id"],
                     session["message_id"],
                     "❌ درصد باید بین 1 تا 100 باشد."
                 )
+
                 return
 
             session["percent"] = percent
@@ -540,18 +662,28 @@ def handle_update(update):
 
             defender_id = session["defender_id"]
 
-            defender = database.get_user(defender_id)
+            defender = database.get_user(
+                defender_id
+            )
 
             if defender is None:
+
                 edit_message(
                     chat_id,
                     message_id,
                     "❌ کشور حریف دیگر وجود ندارد."
                 )
-                attack_sessions.pop(user_id, None)
+
+                attack_sessions.pop(
+                    user_id,
+                    None
+                )
+
                 return
 
-            military_power = calculate_military_power(user_id)
+            military_power = calculate_military_power(
+                user_id
+            )
 
             attack_power = int(
                 military_power * percent / 100
@@ -569,7 +701,10 @@ def handle_update(update):
             warning = ""
 
             if damage >= defender["hp"]:
-                warning = "\n\n⚠️ کشور حریف کاملاً نابود می‌شود!"
+
+                warning = (
+                    "\n\n⚠️ کشور حریف کاملاً نابود می‌شود!"
+                )
 
             text_result = (
                 "⚔️ آماده حمله\n\n"
@@ -615,7 +750,28 @@ def handle_update(update):
 
     if data == "attack":
 
-        attack_sessions.pop(user_id, None)
+        attack_sessions.pop(
+            user_id,
+            None
+        )
+
+        # ==================================
+        # بررسی Cooldown پنج دقیقه‌ای
+        # ==================================
+
+        remaining = get_attack_cooldown(
+            user_id
+        )
+
+        if remaining > 0:
+
+            show_attack_cooldown(
+                chat_id,
+                message_id,
+                user_id
+            )
+
+            return
 
         show_attack_menu(
             chat_id,
@@ -632,13 +788,16 @@ def handle_update(update):
     if data.startswith("attack_target_"):
 
         try:
+
             defender_id = int(
                 data.replace(
                     "attack_target_",
                     ""
                 )
             )
+
         except ValueError:
+
             return
 
         # کشور حریف
@@ -647,29 +806,36 @@ def handle_update(update):
         )
 
         if defender is None:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ این کشور دیگر در دسترس نیست."
             )
+
             return
 
         # جلوگیری از حمله به خود
         if defender_id == user_id:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ نمی‌توانی به کشور خودت حمله کنی."
             )
+
             return
-        
+
         # ==================================
         # بررسی داشتن تجهیزات نظامی
         # ==================================
 
-        military_power = calculate_military_power(user_id)
+        military_power = calculate_military_power(
+            user_id
+        )
 
         if military_power <= 0:
+
             shop_keyboard = {
                 "inline_keyboard": [
                     [
@@ -688,26 +854,34 @@ def handle_update(update):
                 "برای خرید تجهیزات بزنید روی «رفتن به شاپ».",
                 shop_keyboard
             )
+
             return
 
         # بررسی اینکه هنوز کشور در اختیار بازیکن است
-        targets, _ = get_attack_targets(user_id)
+        targets, _ = get_attack_targets(
+            user_id
+        )
 
         valid_target = False
 
         for target in targets:
+
             if target["user_id"] == defender_id:
+
                 valid_target = True
+
                 break
 
         if not valid_target:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ این کشور دیگر قابل حمله نیست."
             )
+
             return
-        
+
         # ذخیره وضعیت حمله
         attack_sessions[user_id] = {
             "chat_id": chat_id,
@@ -748,19 +922,24 @@ def handle_update(update):
 
     if data.startswith("attack_percent_"):
 
-        session = attack_sessions.get(user_id)
+        session = attack_sessions.get(
+            user_id
+        )
 
         if session is None:
             return
 
         try:
+
             percent = int(
                 data.replace(
                     "attack_percent_",
                     ""
                 )
             )
+
         except ValueError:
+
             return
 
         session["percent"] = percent
@@ -773,12 +952,18 @@ def handle_update(update):
         )
 
         if defender is None:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ کشور حریف دیگر وجود ندارد."
             )
-            attack_sessions.pop(user_id, None)
+
+            attack_sessions.pop(
+                user_id,
+                None
+            )
+
             return
 
         military_power = calculate_military_power(
@@ -801,7 +986,10 @@ def handle_update(update):
         warning = ""
 
         if damage >= defender["hp"]:
-            warning = "\n\n⚠️ کشور حریف کاملاً نابود می‌شود!"
+
+            warning = (
+                "\n\n⚠️ کشور حریف کاملاً نابود می‌شود!"
+            )
 
         text = (
             "⚔️ آماده حمله\n\n"
@@ -827,7 +1015,9 @@ def handle_update(update):
 
     if data == "attack_custom_percent":
 
-        session = attack_sessions.get(user_id)
+        session = attack_sessions.get(
+            user_id
+        )
 
         if session is None:
             return
@@ -853,7 +1043,9 @@ def handle_update(update):
 
     if data == "attack_execute":
 
-        session = attack_sessions.get(user_id)
+        session = attack_sessions.get(
+            user_id
+        )
 
         if session is None:
             return
@@ -861,11 +1053,13 @@ def handle_update(update):
         percent = session.get("percent")
 
         if percent is None:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ ابتدا درصد قدرت نظامی را انتخاب کنید."
             )
+
             return
 
         defender_id = session["defender_id"]
@@ -875,12 +1069,18 @@ def handle_update(update):
         )
 
         if defender is None:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ کشور حریف دیگر وجود ندارد."
             )
-            attack_sessions.pop(user_id, None)
+
+            attack_sessions.pop(
+                user_id,
+                None
+            )
+
             return
 
         attacker = database.get_user(
@@ -909,12 +1109,20 @@ def handle_update(update):
         )
 
         if result is None:
+
             edit_message(
                 chat_id,
                 message_id,
                 "❌ اجرای حمله با خطا مواجه شد."
             )
+
             return
+
+        # ==================================
+        # ثبت زمان حمله موفق
+        # ==================================
+
+        attack_cooldowns[user_id] = time.time()
 
         # ==================================
         # گزارش حمله
@@ -1014,7 +1222,10 @@ def handle_update(update):
             text
         )
 
-        attack_sessions.pop(user_id, None)
+        attack_sessions.pop(
+            user_id,
+            None
+        )
 
         return
 
@@ -1024,7 +1235,10 @@ def handle_update(update):
 
     if data == "attack_cancel":
 
-        attack_sessions.pop(user_id, None)
+        attack_sessions.pop(
+            user_id,
+            None
+        )
 
         edit_message(
             chat_id,
