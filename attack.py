@@ -12,7 +12,7 @@ import time
 # ==============================
 # مدت محافظت کشورهای تازه‌تأسیس (ساعت)
 # ==============================
-PROTECTION_HOURS = 3
+PROTECTION_HOURS = 1
 PROTECTION_SECONDS = PROTECTION_HOURS * 3600
 
 
