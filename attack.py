@@ -12,8 +12,8 @@ import time
 # ==============================
 # مدت محافظت کشورهای تازه‌تأسیس (ساعت)
 # ==============================
-PROTECTION_HOURS = 1
-PROTECTION_SECONDS = PROTECTION_HOURS * 60
+PROTECTION_HOURS = 5
+PROTECTION_SECONDS = PROTECTION_HOURS * 3600
 
 
 # ==============================
@@ -430,14 +430,24 @@ def get_attack_targets(attacker_id):
 send_message = None
 edit_message = None
 
+# قابلیت جدید:
+# تابع نمایش منوی اصلی از start.py
+show_main_menu = None
 
-def setup(send_func, edit_func):
+
+def setup(
+    send_func,
+    edit_func,
+    main_menu_func=None
+):
 
     global send_message
     global edit_message
+    global show_main_menu
 
     send_message = send_func
     edit_message = edit_func
+    show_main_menu = main_menu_func
 
 
 # ==============================
@@ -1240,10 +1250,23 @@ def handle_update(update):
             None
         )
 
-        edit_message(
-            chat_id,
-            message_id,
-            "🏠 منوی اصلی"
+        # ==================================
+        # برگشت به منوی اصلی واقعی
+        # با ویرایش همان پیام
+        # ==================================
+
+        user = database.get_user(
+            user_id
         )
+
+        if user and user["country"]:
+
+            if show_main_menu is not None:
+
+                show_main_menu(
+                    chat_id,
+                    user,
+                    message_id
+                )
 
         return
