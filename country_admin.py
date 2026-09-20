@@ -858,6 +858,3 @@ if data.startswith("admin_decrease_"):
     )
 
     return
-
-
-این نسخه فقط **جای شرط `admin_destroy_confirm_` و `admin_destroy_`** را عوض کرده تا تأیید نهایی واقعاً اجرا شود. بقیه کد همان است.
