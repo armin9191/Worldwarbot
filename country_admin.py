@@ -4,6 +4,7 @@
 
 import config
 import database
+import keyboards
 
 send_message = None
 edit_message = None
@@ -119,8 +120,38 @@ def admin_manage_keyboard(user_id):
             ],
             [
                 {
+                    "text": "💀 نابودی کامل کشور",
+                    "callback_data": f"admin_destroy_{user_id}"
+                }
+            ],
+            [
+                {
                     "text": "🔙 لیست کشورها",
                     "callback_data": "admin_countries"
+                }
+            ]
+        ]
+    }
+
+
+# =========================
+# دکمه‌های تأیید نابودی
+# =========================
+
+def admin_destroy_confirm_keyboard(user_id):
+
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "💀 بله، نابود کن",
+                    "callback_data": f"admin_destroy_confirm_{user_id}"
+                }
+            ],
+            [
+                {
+                    "text": "❌ لغو",
+                    "callback_data": f"admin_country_{user_id}"
                 }
             ]
         ]
@@ -652,6 +683,118 @@ def handle_update(update):
             chat_id,
             message_id,
             target_user_id
+        )
+
+        return
+
+    # =========================
+    # شروع نابودی کشور
+    # =========================
+
+    if data.startswith("admin_destroy_"):
+
+        try:
+            target_user_id = int(
+                data.replace("admin_destroy_", "")
+            )
+        except ValueError:
+            return
+
+        target_user = database.get_user(
+            target_user_id
+        )
+
+        if target_user is None or not target_user["country"]:
+
+            edit_message(
+                chat_id,
+                message_id,
+                "❌ این کشور دیگر بازیکن ندارد."
+            )
+
+            return
+
+        country = target_user["country"]
+
+        edit_message(
+            chat_id,
+            message_id,
+            "⚠️ تأیید نابودی کشور\n\n"
+            f"🌍 کشور: {country}\n\n"
+            "💀 با تأیید این عملیات، کشور کاملاً نابود می‌شود "
+            "و بازیکن باید یک کشور جدید انتخاب کند.\n\n"
+            "❗ این عملیات قابل بازگشت نیست.\n\n"
+            "آیا مطمئن هستید؟",
+            admin_destroy_confirm_keyboard(
+                target_user_id
+            )
+        )
+
+        return
+
+    # =========================
+    # تأیید نهایی نابودی کشور
+    # =========================
+
+    if data.startswith("admin_destroy_confirm_"):
+
+        try:
+            target_user_id = int(
+                data.replace("admin_destroy_confirm_", "")
+            )
+        except ValueError:
+            return
+
+        target_user = database.get_user(
+            target_user_id
+        )
+
+        if target_user is None or not target_user["country"]:
+
+            edit_message(
+                chat_id,
+                message_id,
+                "❌ این کشور دیگر بازیکن ندارد."
+            )
+
+            return
+
+        country = target_user["country"]
+
+        # =========================
+        # ریست کامل کشور
+        # دقیقاً همان تابع شکست نظامی
+        # =========================
+
+        database.reset_player_after_defeat(
+            target_user_id
+        )
+
+        # =========================
+        # ارسال پیام به بازیکن
+        # =========================
+
+        send_message(
+            target_user_id,
+            "💀 کشور شما کاملاً نابود شد!\n\n"
+            "🌍 شما باید یک کشور جدید انتخاب کنید.",
+            keyboards.country_keyboard()
+        )
+
+        # =========================
+        # نمایش نتیجه برای ادمین
+        # =========================
+
+        edit_message(
+            chat_id,
+            message_id,
+            f"💀 کشور «{country}» کاملاً نابود شد.\n\n"
+            "بازیکن باید یک کشور جدید انتخاب کند."
+        )
+
+        admin_sessions.pop(
+            admin_id,
+            None
         )
 
         return
