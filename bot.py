@@ -231,7 +231,8 @@ import attack
 
 attack.setup(
     send_message,
-    edit_message
+    edit_message,
+    start.show_main_menu
 )
 
 register_module(attack)
