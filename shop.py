@@ -161,7 +161,7 @@ def find_item(item_id):
     return None
 
 
-# نمایش بازار
+#نمایش بازار
 def show_shop(chat_id, message_id=None):
     text = (
         "🔫 بازار تسلیحات\n\n"
