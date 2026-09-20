@@ -23,7 +23,7 @@ MINE_RATES = {
 # ==============================
 
 PAYOUT_HOUR = 0
-PAYOUT_MINUTE = 12
+PAYOUT_MINUTE = 0
 
 
 # ==============================
