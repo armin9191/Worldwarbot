@@ -2,6 +2,8 @@
 # World War Bot - Configuration
 # ==============================
 
+import os
+
 # توکن ربات بله
 BOT_TOKEN = "685363715:pYL2jAvDbj5SWa7wT1Mgbw5lXP6ZL_tTcPM"
 
@@ -16,8 +18,12 @@ API_URL = f"https://tapi.bale.ai/bot{BOT_TOKEN}"
 # تنظیمات عمومی
 BOT_NAME = "World War"
 
-# تنظیمات دیتابیس
-DATABASE_NAME = "world_war.db"
+# ==============================
+# تنظیمات دیتابیس (پایدار روی Railway)
+# ==============================
+# اگر متغیر محیطی DATABASE_PATH وجود داشت از اون استفاده می‌کنه
+# در غیر این صورت از مسیر /data/world_war.db استفاده می‌کنه
+DATABASE_NAME = os.environ.get("DATABASE_PATH", "/data/world_war.db")
 
 # ==============================
 # تنظیمات صدور بیانیه
