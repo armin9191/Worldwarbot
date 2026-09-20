@@ -56,6 +56,9 @@ ALLIANCE_SHOP_ITEMS = {
 
 SHOP_QTY_LIST = [1, 5, 10, 20]
 
+# هزینه ساخت اتحاد
+ALLIANCE_CREATE_COST = 500_000_000_000
+
 CANCEL_TEXTS = {
     "لغو",
     "انصراف",
@@ -179,7 +182,10 @@ def money(value):
 
 def persian_number(value):
     """تبدیل عدد انگلیسی به عدد فارسی برای متن دکمه‌ها و پیام‌ها."""
-    return str(value).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+    return str(value).translate(str.maketrans(
+        "0123456789",
+        "۰۱۲۳۴۵۶۷۸۹"
+    ))
 
 
 def item_name(item_id):
@@ -355,6 +361,7 @@ def get_sent_message_id(result):
         return None
 
     message = result.get("result")
+
     if isinstance(message, dict):
         return message.get("message_id")
 
@@ -748,6 +755,37 @@ def start_create(chat_id, user_id, message_id):
     set_waiting(user_id, "create_name", prompt_message_id)
 
 
+def show_create_confirmation(
+    chat_id,
+    user_id,
+    message_id,
+    name,
+    tag=None,
+):
+    user = database.get_or_create_user(user_id)
+    budget = user["budget"] if user else 0
+
+    tag_text = f"#{tag}" if tag else "بدون تگ"
+
+    edit_or_send(
+        chat_id,
+        message_id,
+        "🛡️ تأیید ساخت اتحاد\n\n"
+        f"🏰 نام اتحاد: «{name}»\n"
+        f"🏷 تگ: {tag_text}\n\n"
+        f"💰 هزینه ساخت: {money(ALLIANCE_CREATE_COST)} دلار\n"
+        f"💳 بودجه فعلی شما: {money(budget)} دلار\n\n"
+        "آیا از ساخت این اتحاد مطمئن هستید؟",
+        inline([
+            [
+                btn("✅ تأیید و پرداخت", "alliance_create_confirm"),
+                btn("❌ لغو", "alliance_cancel"),
+            ],
+            back_row(),
+        ]),
+    )
+
+
 def create_alliance(user_id, name, tag=None):
     name = clean_name(name)
 
@@ -786,6 +824,52 @@ def create_alliance(user_id, name, tag=None):
             connection.rollback()
             return False, "شما از قبل عضو یک اتحاد هستید."
 
+        # ==============================
+        # بررسی بودجه و پرداخت هزینه ساخت
+        # ==============================
+
+        cursor.execute("""
+            SELECT budget
+            FROM users
+            WHERE user_id = ?
+            LIMIT 1
+        """, (user_id,))
+
+        user_row = cursor.fetchone()
+
+        if user_row is None:
+            connection.rollback()
+            return False, "کاربر پیدا نشد."
+
+        budget = user_row[0]
+
+        if budget < ALLIANCE_CREATE_COST:
+            connection.rollback()
+            return False, (
+                "بودجه شما برای ساخت اتحاد کافی نیست.\n\n"
+                f"💰 هزینه ساخت: {money(ALLIANCE_CREATE_COST)} دلار\n"
+                f"💳 بودجه فعلی: {money(budget)} دلار"
+            )
+
+        cursor.execute("""
+            UPDATE users
+            SET budget = budget - ?
+            WHERE user_id = ?
+              AND budget >= ?
+        """, (
+            ALLIANCE_CREATE_COST,
+            user_id,
+            ALLIANCE_CREATE_COST,
+        ))
+
+        if cursor.rowcount == 0:
+            connection.rollback()
+            return False, "پرداخت هزینه ساخت اتحاد انجام نشد."
+
+        # ==============================
+        # بررسی نام اتحاد
+        # ==============================
+
         cursor.execute("""
             SELECT id
             FROM alliances
@@ -797,6 +881,10 @@ def create_alliance(user_id, name, tag=None):
         if cursor.fetchone():
             connection.rollback()
             return False, "این نام اتحاد قبلاً استفاده شده است."
+
+        # ==============================
+        # بررسی تگ
+        # ==============================
 
         if tag:
             cursor.execute("""
@@ -824,7 +912,12 @@ def create_alliance(user_id, name, tag=None):
                 created_at
             )
             VALUES (?, ?, ?, 0, 'active', ?)
-        """, (name, tag, user_id, created_at))
+        """, (
+            name,
+            tag,
+            user_id,
+            created_at,
+        ))
 
         alliance_id = cursor.lastrowid
 
@@ -837,7 +930,11 @@ def create_alliance(user_id, name, tag=None):
                 joined_at
             )
             VALUES (?, ?, 'leader', ?)
-        """, (alliance_id, user_id, created_at))
+        """, (
+            alliance_id,
+            user_id,
+            created_at,
+        ))
 
         add_tx(
             cursor,
@@ -848,6 +945,7 @@ def create_alliance(user_id, name, tag=None):
         )
 
         connection.commit()
+
         return True, name
 
     except Exception as error:
@@ -911,7 +1009,11 @@ def join_alliance(user_id, alliance_id):
                 joined_at
             )
             VALUES (?, ?, 'member', ?)
-        """, (alliance_id, user_id, joined_at))
+        """, (
+            alliance_id,
+            user_id,
+            joined_at,
+        ))
 
         add_tx(
             cursor,
@@ -922,6 +1024,7 @@ def join_alliance(user_id, alliance_id):
         )
 
         connection.commit()
+
         return True, alliance[1]
 
     except Exception as error:
@@ -967,7 +1070,10 @@ def leave_alliance(user_id):
             DELETE FROM alliance_members
             WHERE alliance_id = ?
               AND user_id = ?
-        """, (alliance["id"], user_id))
+        """, (
+            alliance["id"],
+            user_id,
+        ))
 
         if cursor.rowcount == 0:
             connection.rollback()
@@ -982,6 +1088,7 @@ def leave_alliance(user_id):
         )
 
         connection.commit()
+
         return True, alliance["name"]
 
     except Exception as error:
@@ -1054,6 +1161,7 @@ def disband_alliance(user_id):
         """, (alliance["id"],))
 
         connection.commit()
+
         return True, alliance["name"]
 
     except Exception as error:
@@ -1093,7 +1201,10 @@ def transfer_leadership(leader_id, new_leader_id):
             WHERE alliance_id = ?
               AND user_id = ?
             LIMIT 1
-        """, (alliance["id"], new_leader_id))
+        """, (
+            alliance["id"],
+            new_leader_id,
+        ))
 
         if cursor.fetchone() is None:
             connection.rollback()
@@ -1104,7 +1215,10 @@ def transfer_leadership(leader_id, new_leader_id):
             SET leader_id = ?
             WHERE id = ?
               AND status = 'active'
-        """, (new_leader_id, alliance["id"]))
+        """, (
+            new_leader_id,
+            alliance["id"],
+        ))
 
         if cursor.rowcount == 0:
             connection.rollback()
@@ -1121,7 +1235,10 @@ def transfer_leadership(leader_id, new_leader_id):
             SET role = 'leader'
             WHERE alliance_id = ?
               AND user_id = ?
-        """, (alliance["id"], new_leader_id))
+        """, (
+            alliance["id"],
+            new_leader_id,
+        ))
 
         add_tx(
             cursor,
@@ -1132,6 +1249,7 @@ def transfer_leadership(leader_id, new_leader_id):
         )
 
         connection.commit()
+
         return True, alliance["name"]
 
     except Exception as error:
@@ -1150,7 +1268,11 @@ def notify_alliance_members(alliance_id, text):
 
     for member in get_members(alliance_id):
         try:
-            send_message(member["user_id"], text, None)
+            send_message(
+                member["user_id"],
+                text,
+                None,
+            )
         except Exception as error:
             print(
                 f"Alliance Notification Error "
@@ -1204,7 +1326,11 @@ def donate_to_treasury(user_id, amount):
             SET budget = budget - ?
             WHERE user_id = ?
               AND budget >= ?
-        """, (amount, user_id, amount))
+        """, (
+            amount,
+            user_id,
+            amount,
+        ))
 
         if cursor.rowcount == 0:
             connection.rollback()
@@ -1215,7 +1341,10 @@ def donate_to_treasury(user_id, amount):
             SET treasury = treasury + ?
             WHERE id = ?
               AND status = 'active'
-        """, (amount, alliance["id"]))
+        """, (
+            amount,
+            alliance["id"],
+        ))
 
         if cursor.rowcount == 0:
             connection.rollback()
@@ -1321,7 +1450,11 @@ def buy_alliance_item(user_id, item_id, quantity):
             WHERE id = ?
               AND status = 'active'
               AND treasury >= ?
-        """, (cost, alliance["id"], cost))
+        """, (
+            cost,
+            alliance["id"],
+            cost,
+        ))
 
         if cursor.rowcount == 0:
             connection.rollback()
@@ -1338,7 +1471,11 @@ def buy_alliance_item(user_id, item_id, quantity):
             ON CONFLICT(alliance_id, item_id)
             DO UPDATE SET
                 quantity = quantity + excluded.quantity
-        """, (alliance["id"], item_id, quantity))
+        """, (
+            alliance["id"],
+            item_id,
+            quantity,
+        ))
 
         add_tx(
             cursor,
@@ -1454,7 +1591,10 @@ def distribute_items(leader_id, item_id, quantity):
             FROM alliance_warehouse
             WHERE alliance_id = ?
               AND item_id = ?
-        """, (alliance["id"], item_id))
+        """, (
+            alliance["id"],
+            item_id,
+        ))
 
         row = cursor.fetchone()
         available = row[0] if row else 0
@@ -1473,7 +1613,12 @@ def distribute_items(leader_id, item_id, quantity):
             WHERE alliance_id = ?
               AND item_id = ?
               AND quantity >= ?
-        """, (quantity, alliance["id"], item_id, quantity))
+        """, (
+            quantity,
+            alliance["id"],
+            item_id,
+            quantity,
+        ))
 
         if cursor.rowcount == 0:
             connection.rollback()
@@ -1494,7 +1639,11 @@ def distribute_items(leader_id, item_id, quantity):
                 ON CONFLICT(user_id, item_id)
                 DO UPDATE SET
                     quantity = quantity + excluded.quantity
-            """, (member_id, item_id, share))
+            """, (
+                member_id,
+                item_id,
+                share,
+            ))
 
         add_tx(
             cursor,
@@ -1517,6 +1666,7 @@ def distribute_items(leader_id, item_id, quantity):
         """, (alliance["id"],))
 
         connection.commit()
+
         return True, shares
 
     except Exception as error:
@@ -2005,8 +2155,12 @@ def show_warehouse(chat_id, user_id, message_id):
                 ])
         else:
             text += "انبار خالی است."
+
             buttons.append([
-                btn("🛒 رفتن به فروشگاه اتحاد", "alliance_shop")
+                btn(
+                    "🛒 رفتن به فروشگاه اتحاد",
+                    "alliance_shop",
+                )
             ])
     else:
         text += "فقط رهبر می‌تواند انبار را مدیریت کند."
@@ -2244,12 +2398,18 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
 
     if is_cancel_text(text):
         clear_waiting(user_id)
+
         show_alliance_menu(
             chat_id,
             user_id,
             old_message_id or message_id,
         )
+
         return True
+
+    # ==============================
+    # نام اتحاد
+    # ==============================
 
     if action == "create_name":
         name = clean_name(text)
@@ -2262,9 +2422,16 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "نام اتحاد",
             )
+
             prompt_message_id = get_sent_message_id(sent)
+
             if prompt_message_id:
-                set_waiting(user_id, "create_name", prompt_message_id)
+                set_waiting(
+                    user_id,
+                    "create_name",
+                    prompt_message_id,
+                )
+
             return True
 
         if len(name) > 32:
@@ -2275,9 +2442,16 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "نام اتحاد",
             )
+
             prompt_message_id = get_sent_message_id(sent)
+
             if prompt_message_id:
-                set_waiting(user_id, "create_name", prompt_message_id)
+                set_waiting(
+                    user_id,
+                    "create_name",
+                    prompt_message_id,
+                )
+
             return True
 
         set_waiting(
@@ -2302,49 +2476,66 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
 
         return True
 
+    # ==============================
+    # تگ اتحاد
+    # ==============================
+
     if action == "create_tag":
         name = extra.get("name")
 
         if not name:
             clear_waiting(user_id)
+
             show_error(
                 chat_id,
                 old_message_id,
                 "جلسه ساخت اتحاد نامعتبر است. دوباره تلاش کنید.",
             )
+
             return True
 
-        ok, result = create_alliance(
-            user_id,
-            name,
-            text,
-        )
+        tag = clean_tag(text)
 
-        if not ok:
+        if not valid_tag(tag):
             edit_or_send(
                 chat_id,
                 old_message_id,
-                f"❌ {result}\n\n"
-                "تگ را دوباره ارسال کنید یا «بدون تگ» را بزنید.",
+                "❌ تگ نامعتبر است.\n\n"
+                "تگ باید بین ۲ تا ۱۶ کاراکتر و فقط شامل "
+                "حروف، عدد یا _ باشد.\n\n"
+                "تگ را دوباره ارسال کنید.",
                 inline([
                     [btn("بدون تگ", "alliance_create_notag")],
                     [btn("❌ لغو", "alliance_cancel")],
                     back_row(),
                 ]),
             )
+
             return True
 
-        clear_waiting(user_id)
-
-        edit_or_send(
-            chat_id,
+        set_waiting(
+            user_id,
+            "create_confirm",
             old_message_id,
-            f"✅ اتحاد «{result}» با موفقیت ساخته شد.\n"
-            "👑 شما رهبر اتحاد هستید.",
-            alliance_menu_keyboard(is_member=True, is_leader=True),
+            {
+                "name": name,
+                "tag": tag,
+            },
+        )
+
+        show_create_confirmation(
+            chat_id,
+            user_id,
+            old_message_id,
+            name,
+            tag,
         )
 
         return True
+
+    # ==============================
+    # اهدا به خزانه
+    # ==============================
 
     if action == "donate":
         amount = parse_positive_int(text)
@@ -2357,6 +2548,7 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "مبلغ اهدا",
             )
+
             return True
 
         ok, result = donate_to_treasury(
@@ -2372,6 +2564,7 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "مبلغ اهدا",
             )
+
             return True
 
         clear_waiting(user_id)
@@ -2390,6 +2583,10 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
 
         return True
 
+    # ==============================
+    # خرید فروشگاه
+    # ==============================
+
     if action == "shop_qty":
         quantity = parse_positive_int(text)
         item_id = extra.get("item_id")
@@ -2402,6 +2599,7 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "تعداد",
             )
+
             return True
 
         ok, result = buy_alliance_item(
@@ -2418,6 +2616,7 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "تعداد",
             )
+
             return True
 
         clear_waiting(user_id)
@@ -2437,6 +2636,10 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
 
         return True
 
+    # ==============================
+    # توزیع
+    # ==============================
+
     if action == "distribute":
         quantity = parse_positive_int(text)
         item_id = extra.get("item_id")
@@ -2449,6 +2652,7 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "تعداد توزیع",
             )
+
             return True
 
         ok, result = distribute_items(
@@ -2465,6 +2669,7 @@ def handle_waiting_text(chat_id, user_id, text, message_id=None):
                 "برای انصراف: لغو",
                 "تعداد توزیع",
             )
+
             return True
 
         clear_waiting(user_id)
@@ -2597,6 +2802,7 @@ def handle_update(update):
             user_id,
             message_id,
         )
+
         return
 
     # --------------------------
@@ -2611,6 +2817,10 @@ def handle_update(update):
         )
         return
 
+    # --------------------------
+    # ساخت اتحاد بدون تگ
+    # --------------------------
+
     if data == "alliance_create_notag":
         session = waiting.get(user_id)
 
@@ -2624,18 +2834,87 @@ def handle_update(update):
 
         name = (session.get("extra") or {}).get("name")
 
-        ok, result = create_alliance(
+        if not name:
+            clear_waiting(user_id)
+
+            show_error(
+                chat_id,
+                message_id,
+                "جلسه ساخت اتحاد نامعتبر است. دوباره تلاش کنید.",
+            )
+
+            return
+
+        set_waiting(
             user_id,
+            "create_confirm",
+            message_id,
+            {
+                "name": name,
+                "tag": None,
+            },
+        )
+
+        show_create_confirmation(
+            chat_id,
+            user_id,
+            message_id,
             name,
             None,
         )
 
-        if not ok:
+        return
+
+    # --------------------------
+    # تأیید ساخت اتحاد و پرداخت
+    # --------------------------
+
+    if data == "alliance_create_confirm":
+        session = waiting.get(user_id)
+
+        if not session or session.get("action") != "create_confirm":
             show_error(
                 chat_id,
                 message_id,
-                result,
+                "جلسه ساخت اتحاد تمام شده است. دوباره تلاش کنید.",
             )
+            return
+
+        extra = session.get("extra") or {}
+
+        name = extra.get("name")
+        tag = extra.get("tag")
+
+        if not name:
+            clear_waiting(user_id)
+
+            show_error(
+                chat_id,
+                message_id,
+                "اطلاعات ساخت اتحاد ناقص است.",
+            )
+
+            return
+
+        ok, result = create_alliance(
+            user_id,
+            name,
+            tag,
+        )
+
+        if not ok:
+            clear_waiting(user_id)
+
+            edit_or_send(
+                chat_id,
+                message_id,
+                f"❌ ساخت اتحاد انجام نشد.\n\n{result}",
+                inline([
+                    [btn("🏰 ساخت اتحاد دوباره", "alliance_create")],
+                    back_row(),
+                ]),
+            )
+
             return
 
         clear_waiting(user_id)
@@ -2643,10 +2922,15 @@ def handle_update(update):
         edit_or_send(
             chat_id,
             message_id,
-            f"✅ اتحاد «{result}» با موفقیت ساخته شد.\n"
+            f"✅ اتحاد «{result}» با موفقیت ساخته شد.\n\n"
+            f"💰 مبلغ {money(ALLIANCE_CREATE_COST)} دلار از بودجه شما کسر شد.\n"
             "👑 شما رهبر اتحاد هستید.",
-            alliance_menu_keyboard(is_member=True, is_leader=True),
+            alliance_menu_keyboard(
+                is_member=True,
+                is_leader=True,
+            ),
         )
+
         return
 
     # --------------------------
@@ -2791,7 +3075,10 @@ def handle_update(update):
             chat_id,
             message_id,
             f"✅ شما از اتحاد «{result}» خارج شدید.",
-            alliance_menu_keyboard(is_member=False, is_leader=False),
+            alliance_menu_keyboard(
+                is_member=False,
+                is_leader=False,
+            ),
         )
         return
 
@@ -2811,7 +3098,7 @@ def handle_update(update):
         edit_or_send(
             chat_id,
             message_id,
-            "⚠️ آیا مطمئن هستید اتحاد منحل شود؟\n"
+            "⚠️ آیا مطمئن هستید اتحاد منحل شود?\n"
             "این کار قابل برگشت نیست.",
             inline([
                 [btn("💥 بله، منحل شود", "alliance_disband")],
@@ -2835,7 +3122,10 @@ def handle_update(update):
             chat_id,
             message_id,
             f"✅ اتحاد «{result}» منحل شد.",
-            alliance_menu_keyboard(is_member=False, is_leader=False),
+            alliance_menu_keyboard(
+                is_member=False,
+                is_leader=False,
+            ),
         )
         return
 
@@ -2968,7 +3258,8 @@ def handle_update(update):
 
         send_input_prompt(
             chat_id,
-            f"✍️ تعداد خرید {item_name(item_id)} را در پاسخ به این پیام ارسال کنید.\n\n"
+            f"✍️ تعداد خرید {item_name(item_id)} را "
+            "در پاسخ به این پیام ارسال کنید.\n\n"
             "برای انصراف: لغو",
             "تعداد خرید",
         )
