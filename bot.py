@@ -267,6 +267,18 @@ register_module(country_admin)
 
 
 # =========================================================
+# Admin Panel
+# =========================================================
+
+import admin_panel
+
+admin_panel.setup(
+    send_message,
+    edit_message
+)
+
+
+# =========================================================
 # Join Required
 # =========================================================
 
@@ -731,6 +743,45 @@ def run_bot():
 
                         if chat_type != "private":
                             continue
+
+
+                # =================================================
+                # Admin Panel
+                # =================================================
+
+                if "callback_query" in update:
+
+                    callback = update["callback_query"]
+
+                    callback_data = callback.get(
+                        "data",
+                        ""
+                    )
+
+                    if callback_data == "admin_panel":
+
+                        message = callback.get(
+                            "message"
+                        )
+
+                        if message is not None:
+
+                            chat_id = message.get(
+                                "chat",
+                                {}
+                            ).get("id")
+
+                            message_id = message.get(
+                                "message_id"
+                            )
+
+                            admin_panel.handle_callback(
+                                chat_id,
+                                message_id,
+                                callback_data
+                            )
+
+                        continue
 
 
                 # =================================================
