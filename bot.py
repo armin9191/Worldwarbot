@@ -343,6 +343,130 @@ register_module(backup)
 
 
 # =========================================================
+# ذخیره اطلاعات کاربر
+# =========================================================
+
+def save_user_info(update):
+
+    if "message" in update:
+
+        message = update["message"]
+
+        user = message.get(
+            "from",
+            {}
+        )
+
+        user_id = user.get("id")
+
+        if user_id is None:
+            return
+
+        username = user.get("username")
+
+        if username:
+            username = username.strip()
+
+        database.get_or_create_user(
+            user_id
+        )
+
+        database.update_username(
+            user_id,
+            username
+        )
+
+        return
+
+    if "callback_query" in update:
+
+        callback = update["callback_query"]
+
+        user = callback.get(
+            "from",
+            {}
+        )
+
+        user_id = user.get("id")
+
+        if user_id is None:
+            return
+
+        username = user.get("username")
+
+        if username:
+            username = username.strip()
+
+        database.get_or_create_user(
+            user_id
+        )
+
+        database.update_username(
+            user_id,
+            username
+        )
+
+
+# =========================================================
+# بررسی بن بودن کاربر
+# =========================================================
+
+def check_user_banned(update):
+
+    if "message" not in update:
+        return True
+
+    message = update["message"]
+
+    chat = message.get(
+        "chat",
+        {}
+    )
+
+    user = message.get(
+        "from",
+        {}
+    )
+
+    chat_id = chat.get("id")
+    user_id = user.get("id")
+
+    text = message.get(
+        "text",
+        ""
+    ).strip()
+
+    chat_type = chat.get("type")
+
+    if chat_type != "private":
+        return True
+
+    # فقط هنگام ورود با /start بررسی می‌شود
+    if text != "/start":
+        return True
+
+    ban_info = database.get_ban_info(
+        user_id
+    )
+
+    if ban_info is None:
+        return True
+
+    reason = ban_info.get(
+        "reason"
+    ) or "دلیلی ثبت نشده است."
+
+    send_message(
+        chat_id,
+        "🚫 شما از بازی بن شده‌اید.\n\n"
+        "❌ دسترسی شما به بازی مسدود شده است.\n\n"
+        f"📄 دلیل بن:\n{reason}"
+    )
+
+    return False
+
+
+# =========================================================
 # Join Required Check
 # =========================================================
 
@@ -535,6 +659,28 @@ def run_bot():
 
 
                 try:
+
+                    # =============================================
+                    # ذخیره اطلاعات کاربر
+                    # =============================================
+
+                    save_user_info(
+                        update
+                    )
+
+                    # =============================================
+                    # بررسی بن بودن
+                    # فقط برای /start
+                    # =============================================
+
+                    if not check_user_banned(
+                        update
+                    ):
+                        continue
+
+                    # =============================================
+                    # بررسی عضویت
+                    # =============================================
 
                     allowed = check_join_required(
                         update
