@@ -143,10 +143,6 @@ def edit_message(
 
     if reply_markup is not None:
 
-        # =============================================
-        # اصلاح ساختار کیبورد پنل مدیریت
-        # =============================================
-
         if isinstance(reply_markup, list):
 
             data["reply_markup"] = {
@@ -292,6 +288,18 @@ admin_panel.setup(
 
 
 # =========================================================
+# Broadcast
+# =========================================================
+
+import broadcast
+
+broadcast.setup(
+    send_message,
+    edit_message
+)
+
+
+# =========================================================
 # Join Required
 # =========================================================
 
@@ -401,7 +409,6 @@ def save_user_info(update):
             username
         )
 
-        # ثبت آخرین فعالیت کاربر
         database.update_last_active(
             user_id
         )
@@ -436,7 +443,6 @@ def save_user_info(update):
             username
         )
 
-        # ثبت آخرین فعالیت کاربر
         database.update_last_active(
             user_id
         )
@@ -780,10 +786,6 @@ def run_bot():
                         ""
                     )
 
-                    # =============================================
-                    # تمام Callback های پنل مدیریت
-                    # =============================================
-
                     admin_callbacks = [
                         "admin_panel",
                         "admin_stats",
@@ -819,6 +821,36 @@ def run_bot():
                             )
 
                         continue
+
+
+                # =================================================
+                # Broadcast Message
+                # =================================================
+
+                if "message" in update:
+
+                    message = update["message"]
+
+                    user = message.get(
+                        "from",
+                        {}
+                    )
+
+                    chat = message.get(
+                        "chat",
+                        {}
+                    )
+
+                    chat_id = chat.get("id")
+                    user_id = user.get("id")
+
+                    if user_id is not None:
+
+                        if broadcast.handle_message(
+                            user_id,
+                            message
+                        ):
+                            continue
 
 
                 # =================================================
