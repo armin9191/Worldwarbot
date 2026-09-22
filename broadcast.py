@@ -1,10 +1,20 @@
 import config
+import database
+import threading
+import requests
+
+from config import BOT_TOKEN, API_URL
+
 
 send_message = None
 edit_message = None
 
-# وضعیت موقت ادمین‌ها
 admin_sessions = {}
+
+BROADCAST_SESSION = requests.Session()
+BROADCAST_SESSION.headers.update({
+    "Content-Type": "application/json"
+})
 
 
 def setup(send_message_function, edit_message_function):
@@ -17,6 +27,305 @@ def setup(send_message_function, edit_message_function):
 
 def is_admin(user_id):
     return user_id in getattr(config, "ADMINS", [])
+
+
+# =========================================================
+# API مستقل Broadcast
+# =========================================================
+
+def broadcast_api_request(method, data=None):
+
+    url = f"{API_URL}/{method}"
+
+    try:
+
+        response = BROADCAST_SESSION.post(
+            url,
+            json=data or {},
+            timeout=(5, 35)
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    except Exception as error:
+
+        print(
+            f"Broadcast API Error [{method}]: {error}"
+        )
+
+        return None
+
+
+# =========================================================
+# گرفتن کاربران
+# =========================================================
+
+def get_all_users():
+
+    try:
+
+        connection = database.get_connection()
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            "SELECT user_id FROM users"
+        )
+
+        rows = cursor.fetchall()
+
+        connection.close()
+
+        users = []
+
+        for row in rows:
+
+            if isinstance(row, dict):
+                user_id = row.get("user_id")
+            else:
+                user_id = row[0]
+
+            if user_id is not None:
+                users.append(user_id)
+
+        return users
+
+    except Exception as error:
+
+        print(
+            f"Broadcast Database Error: {error}"
+        )
+
+        return []
+
+
+# =========================================================
+# ارسال متن
+# =========================================================
+
+def send_text_to_user(user_id, text):
+
+    return broadcast_api_request(
+        "sendMessage",
+        {
+            "chat_id": user_id,
+            "text": text
+        }
+    )
+
+
+# =========================================================
+# ارسال Forward
+# =========================================================
+
+def forward_message_to_user(
+    user_id,
+    from_chat_id,
+    message_id
+):
+
+    return broadcast_api_request(
+        "forwardMessage",
+        {
+            "chat_id": user_id,
+            "from_chat_id": from_chat_id,
+            "message_id": message_id
+        }
+    )
+
+
+# =========================================================
+# تشخیص Forward
+# =========================================================
+
+def is_forwarded_message(message):
+
+    if not isinstance(message, dict):
+        return False
+
+    # حالت‌های مختلف Forward
+    forward_keys = [
+        "forward_from",
+        "forward_from_chat",
+        "forward_from_message_id",
+        "forward_date",
+        "forward_origin"
+    ]
+
+    for key in forward_keys:
+
+        if key in message:
+            return True
+
+    return False
+
+
+# =========================================================
+# ارسال همگانی در Background
+# =========================================================
+
+def broadcast_worker(
+    message,
+    admin_chat_id,
+    admin_message_id
+):
+
+    users = get_all_users()
+
+    total_users = len(users)
+
+    # اگر کاربری وجود نداشت
+    if not users:
+
+        try:
+
+            edit_message(
+                admin_chat_id,
+                admin_message_id,
+                "📢 ارسال همگانی تمام شد\n\n"
+                "👥 تعداد کاربران: ۰\n\n"
+                "✅ ارسال موفق: ۰ کاربر\n"
+                "❌ ارسال ناموفق: ۰ کاربر"
+            )
+
+        except Exception as error:
+
+            print(
+                f"Broadcast final edit error: {error}"
+            )
+
+        return
+
+    text = message.get("text")
+
+    message_chat = message.get(
+        "chat",
+        {}
+    )
+
+    from_chat_id = message_chat.get(
+        "id"
+    )
+
+    message_id = message.get(
+        "message_id"
+    )
+
+    forwarded = is_forwarded_message(message)
+
+    sent = 0
+    failed = 0
+
+    # -----------------------------------------------------
+    # نمایش وضعیت شروع
+    # -----------------------------------------------------
+
+    try:
+
+        edit_message(
+            admin_chat_id,
+            admin_message_id,
+            "📢 پیام همگانی\n\n"
+            f"📨 پیام برای {total_users:,} کاربر "
+            "درحال ارسال می‌باشد..."
+        )
+
+    except Exception as error:
+
+        print(
+            f"Broadcast progress edit error: {error}"
+        )
+
+    # -----------------------------------------------------
+    # ارسال
+    # -----------------------------------------------------
+
+    for user_id in users:
+
+        try:
+
+            # اگر پیام Forward شده باشد
+            # همیشه خود پیام Forward می‌شود
+            if forwarded:
+
+                result = forward_message_to_user(
+                    user_id,
+                    from_chat_id,
+                    message_id
+                )
+
+            # پیام معمولی متنی
+            elif text is not None:
+
+                result = send_text_to_user(
+                    user_id,
+                    text
+                )
+
+            # سایر پیام‌ها مثل عکس، فایل، ویدیو و...
+            else:
+
+                result = forward_message_to_user(
+                    user_id,
+                    from_chat_id,
+                    message_id
+                )
+
+            # فقط نتیجه واقعی API
+            if (
+                isinstance(result, dict)
+                and result.get("ok") is True
+            ):
+
+                sent += 1
+
+            else:
+
+                failed += 1
+
+                print(
+                    f"Broadcast failed for user "
+                    f"[{user_id}]"
+                )
+
+        except Exception as error:
+
+            failed += 1
+
+            print(
+                f"Broadcast user error "
+                f"[{user_id}]: {error}"
+            )
+
+    # =====================================================
+    # پایان ارسال
+    # =====================================================
+
+    try:
+
+        edit_message(
+            admin_chat_id,
+            admin_message_id,
+            "📢 ارسال همگانی تمام شد\n\n"
+            f"👥 تعداد کل کاربران: {total_users:,}\n\n"
+            f"✅ ارسال موفق: {sent:,} کاربر\n"
+            f"❌ ارسال ناموفق: {failed:,} کاربر"
+        )
+
+    except Exception as error:
+
+        print(
+            f"Broadcast final edit error: {error}"
+        )
+
+    print(
+        f"Broadcast finished | "
+        f"Total: {total_users} | "
+        f"Sent: {sent} | "
+        f"Failed: {failed}"
+    )
 
 
 # =========================================================
@@ -57,7 +366,7 @@ def start_broadcast(chat_id, message_id):
 
 
 # =========================================================
-# نمایش پیش‌نمایش
+# پیش‌نمایش
 # =========================================================
 
 def show_preview(chat_id, message):
@@ -73,13 +382,9 @@ def show_preview(chat_id, message):
     session["message"] = message
     session["state"] = "preview"
 
-    # -----------------------------------------------------
-    # پیام متنی
-    # -----------------------------------------------------
-
     text = message.get("text")
 
-    if text:
+    if text and not is_forwarded_message(message):
 
         preview_text = (
             "📢 پیش‌نمایش پیام\n\n"
@@ -87,37 +392,13 @@ def show_preview(chat_id, message):
             "آیا پیام برای همه کاربران ارسال شود؟"
         )
 
-        keyboard = [
-            [
-                {
-                    "text": "✅ ارسال",
-                    "callback_data": "broadcast_send"
-                },
-                {
-                    "text": "❌ لغو",
-                    "callback_data": "broadcast_cancel"
-                }
-            ]
-        ]
+    else:
 
-        edit_message(
-            chat_id,
-            session["message_id"],
-            preview_text,
-            keyboard
+        preview_text = (
+            "📢 پیش‌نمایش پیام\n\n"
+            "📨 پیام فورواردی دریافت شد.\n\n"
+            "آیا پیام برای همه کاربران ارسال شود؟"
         )
-
-        return
-
-    # -----------------------------------------------------
-    # پیام غیرمتنی / فورواردی
-    # -----------------------------------------------------
-
-    preview_text = (
-        "📢 پیش‌نمایش پیام\n\n"
-        "پیام دریافت شد.\n\n"
-        "آیا پیام برای همه کاربران ارسال شود؟"
-    )
 
     keyboard = [
         [
@@ -132,8 +413,6 @@ def show_preview(chat_id, message):
         ]
     ]
 
-    # برای پیام‌های غیرمتنی فعلاً یک پیام متنی
-    # برای پیش‌نمایش نشان داده می‌شود.
     edit_message(
         chat_id,
         session["message_id"],
@@ -143,7 +422,7 @@ def show_preview(chat_id, message):
 
 
 # =========================================================
-# دریافت پیام ادمین
+# دریافت پیام
 # =========================================================
 
 def handle_message(chat_id, message):
@@ -168,7 +447,7 @@ def handle_message(chat_id, message):
 
 
 # =========================================================
-# مدیریت Callback
+# Callback
 # =========================================================
 
 def handle_callback(chat_id, message_id, callback_data):
@@ -177,7 +456,7 @@ def handle_callback(chat_id, message_id, callback_data):
         return False
 
     # -----------------------------------------------------
-    # ورود به پیام همگانی
+    # ورود
     # -----------------------------------------------------
 
     if callback_data == "admin_broadcast":
@@ -259,8 +538,53 @@ def handle_callback(chat_id, message_id, callback_data):
 
     if callback_data == "broadcast_send":
 
-        # فعلاً ارسال واقعی را فعال نمی‌کنیم.
-        # در مرحله بعد سیستم ارسال سریع و Background اضافه می‌شود.
+        session = admin_sessions.get(
+            chat_id
+        )
+
+        if not session:
+            return True
+
+        message = session.get(
+            "message"
+        )
+
+        if not message:
+            return True
+
+        session["state"] = "sending"
+
+        # شناسه پیام ادمین را قبل از حذف session نگه می‌داریم
+        admin_message_id = message_id
+
+        # تعداد کاربران برای نمایش وضعیت
+        users = get_all_users()
+        total_users = len(users)
+
+        edit_message(
+            chat_id,
+            message_id,
+            "📢 پیام همگانی\n\n"
+            f"📨 پیام برای {total_users:,} کاربر "
+            "درحال ارسال می‌باشد..."
+        )
+
+        admin_sessions.pop(
+            chat_id,
+            None
+        )
+
+        worker = threading.Thread(
+            target=broadcast_worker,
+            args=(
+                message,
+                chat_id,
+                admin_message_id
+            ),
+            daemon=True
+        )
+
+        worker.start()
 
         return True
 
