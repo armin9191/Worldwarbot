@@ -624,9 +624,7 @@ def check_join_required(update):
 
             return False
 
-        cache_join(
-            user_id
-        )
+        cache_join(user_id)
 
         return True
 
@@ -794,7 +792,11 @@ def run_bot():
                         "admin_banned",
                         "admin_admins",
                         "admin_settings",
-                        "back_admin_panel"
+                        "back_admin_panel",
+
+                        # Broadcast
+                        "broadcast_send",
+                        "broadcast_cancel"
                     ]
 
                     if callback_data in admin_callbacks:
