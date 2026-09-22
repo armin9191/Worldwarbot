@@ -1,6 +1,7 @@
 import config
 import database
 import broadcast
+import country_admin
 
 
 send_message = None
@@ -225,25 +226,10 @@ def show_admin_banned(chat_id, message_id):
     if not is_admin(chat_id):
         return
 
-    text = (
-        "🚷 کاربران بن شده\n\n"
-        "مدیریت کاربران بن شده در این بخش انجام می‌شود."
-    )
-
-    keyboard = [
-        [
-            {
-                "text": "🔙 برگشت",
-                "callback_data": "back_admin_panel"
-            }
-        ]
-    ]
-
-    edit_message(
+    # استفاده از همان سیستم کاربران بن شده در country_admin
+    country_admin.show_banned_users(
         chat_id,
-        message_id,
-        text,
-        keyboard
+        message_id
     )
 
 
