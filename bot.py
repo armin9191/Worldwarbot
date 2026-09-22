@@ -142,7 +142,20 @@ def edit_message(
     }
 
     if reply_markup is not None:
-        data["reply_markup"] = reply_markup
+
+        # =============================================
+        # اصلاح ساختار کیبورد پنل مدیریت
+        # =============================================
+
+        if isinstance(reply_markup, list):
+
+            data["reply_markup"] = {
+                "inline_keyboard": reply_markup
+            }
+
+        else:
+
+            data["reply_markup"] = reply_markup
 
     return api_request(
         "editMessageText",
@@ -463,7 +476,6 @@ def check_user_banned(update):
     if chat_type != "private":
         return True
 
-    # فقط هنگام ورود با /start بررسی می‌شود
     if text != "/start":
         return True
 
@@ -768,7 +780,22 @@ def run_bot():
                         ""
                     )
 
-                    if callback_data == "admin_panel":
+                    # =============================================
+                    # تمام Callback های پنل مدیریت
+                    # =============================================
+
+                    admin_callbacks = [
+                        "admin_panel",
+                        "admin_stats",
+                        "admin_broadcast",
+                        "admin_users",
+                        "admin_banned",
+                        "admin_admins",
+                        "admin_settings",
+                        "back_admin_panel"
+                    ]
+
+                    if callback_data in admin_callbacks:
 
                         message = callback.get(
                             "message"
