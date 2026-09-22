@@ -56,6 +56,22 @@ def init_db():
     except:
         pass
 
+    # اضافه کردن زمان اولین ورود کاربر
+    try:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN created_at INTEGER"
+        )
+    except:
+        pass
+
+    # اضافه کردن زمان آخرین فعالیت کاربر
+    try:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN last_active_at INTEGER"
+        )
+    except:
+        pass
+
     # جدول موجودی
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS inventory (
@@ -100,15 +116,19 @@ def create_user(user_id):
     connection = get_connection()
     cursor = connection.cursor()
 
+    now = int(time.time())
+
     cursor.execute("""
         INSERT OR IGNORE INTO users
-        (user_id, country, budget, hp)
-        VALUES (?, ?, ?, ?)
+        (user_id, country, budget, hp, created_at, last_active_at)
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (
         user_id,
         None,
         200000000,
-        100
+        100,
+        now,
+        now
     ))
 
     connection.commit()
@@ -160,6 +180,27 @@ def get_or_create_user(user_id):
 
 
 # =========================
+# ثبت فعالیت کاربر
+# =========================
+
+def update_last_active(user_id):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE users
+        SET last_active_at = ?
+        WHERE user_id = ?
+    """, (
+        int(time.time()),
+        user_id
+    ))
+
+    connection.commit()
+    connection.close()
+
+
+# =========================
 # ذخیره Username
 # =========================
 
@@ -202,6 +243,124 @@ def get_username(user_id):
         return None
 
     return result[0]
+
+
+# =========================
+# آمار کاربران
+# =========================
+
+def get_bot_stats():
+
+    now = int(time.time())
+
+    today_start = now - 86400
+    seven_days_start = now - (7 * 86400)
+    thirty_days_start = now - (30 * 86400)
+    twenty_four_hours_start = now - 86400
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    # کل کاربران
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+    """)
+
+    total_users = cursor.fetchone()[0]
+
+    # کاربران ثبت شده در 24 ساعت اخیر
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE created_at IS NOT NULL
+        AND created_at >= ?
+    """, (today_start,))
+
+    users_today = cursor.fetchone()[0]
+
+    # کاربران ثبت شده در 7 روز اخیر
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE created_at IS NOT NULL
+        AND created_at >= ?
+    """, (seven_days_start,))
+
+    users_7_days = cursor.fetchone()[0]
+
+    # کاربران ثبت شده در 30 روز اخیر
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE created_at IS NOT NULL
+        AND created_at >= ?
+    """, (thirty_days_start,))
+
+    users_30_days = cursor.fetchone()[0]
+
+    # کاربران دارای کشور
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE country IS NOT NULL
+    """)
+
+    selected_countries = cursor.fetchone()[0]
+
+    # کاربران بدون کشور
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE country IS NULL
+    """)
+
+    users_without_country = cursor.fetchone()[0]
+
+    # کشورهایی که در 24 ساعت اخیر انتخاب شده‌اند
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE country IS NOT NULL
+        AND country_selected_at IS NOT NULL
+        AND country_selected_at >= ?
+    """, (twenty_four_hours_start,))
+
+    countries_selected_24h = cursor.fetchone()[0]
+
+    # کاربران فعال امروز
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE last_active_at IS NOT NULL
+        AND last_active_at >= ?
+    """, (today_start,))
+
+    active_today = cursor.fetchone()[0]
+
+    # کاربران فعال در 7 روز گذشته
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM users
+        WHERE last_active_at IS NOT NULL
+        AND last_active_at >= ?
+    """, (seven_days_start,))
+
+    active_7_days = cursor.fetchone()[0]
+
+    connection.close()
+
+    return {
+        "total_users": total_users,
+        "users_today": users_today,
+        "users_7_days": users_7_days,
+        "users_30_days": users_30_days,
+        "selected_countries": selected_countries,
+        "users_without_country": users_without_country,
+        "countries_selected_24h": countries_selected_24h,
+        "active_today": active_today,
+        "active_7_days": active_7_days
+    }
 
 
 # =========================
