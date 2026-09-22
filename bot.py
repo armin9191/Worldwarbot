@@ -388,6 +388,11 @@ def save_user_info(update):
             username
         )
 
+        # ثبت آخرین فعالیت کاربر
+        database.update_last_active(
+            user_id
+        )
+
         return
 
     if "callback_query" in update:
@@ -416,6 +421,11 @@ def save_user_info(update):
         database.update_username(
             user_id,
             username
+        )
+
+        # ثبت آخرین فعالیت کاربر
+        database.update_last_active(
+            user_id
         )
 
 
