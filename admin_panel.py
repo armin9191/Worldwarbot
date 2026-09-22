@@ -1,5 +1,6 @@
 import config
 import database
+import broadcast
 
 
 send_message = None
@@ -16,6 +17,11 @@ def setup(send_message_function, edit_message_function):
 
     send_message = send_message_function
     edit_message = edit_message_function
+
+    broadcast.setup(
+        send_message_function,
+        edit_message_function
+    )
 
 
 # ==============================
@@ -327,6 +333,9 @@ def handle_callback(chat_id, message_id, callback_data):
         return True
 
     # پیام همگانی
+    if broadcast.handle_callback(chat_id, message_id, callback_data):
+        return True
+
     if callback_data == "admin_broadcast":
         show_admin_broadcast(chat_id, message_id)
         return True
