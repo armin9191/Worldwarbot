@@ -94,21 +94,15 @@ def main_menu_keyboard(is_admin=False):
             {"text": "🔫 بازار تسلیحات", "callback_data": "arms_market"}
         ],
         [
-            {"text": "🏢 شرکت‌های بین‌المللی", "callback_data": "international_companies"}
-        ],
-        [
+            {"text": "🏢 شرکت‌های بین‌المللی", "callback_data": "international_companies"},
             {"text": "📦 صادرات/واردات", "callback_data": "trade"}
         ],
         [
-            {"text": "🏰 اتحاد", "callback_data": "alliance"}
-        ],
-        [
+            {"text": "🏰 اتحاد", "callback_data": "alliance"},
             {"text": "📢 صدور بیانیه", "callback_data": "statement"}
         ],
         [
-            {"text": "⚔️ قوانین جنگ", "callback_data": "war_rules"}
-        ],
-        [
+            {"text": "⚔️ قوانین جنگ", "callback_data": "war_rules"},
             {"text": "💥 حمله نظامی", "callback_data": "attack"}
         ]
     ]
@@ -119,10 +113,7 @@ def main_menu_keyboard(is_admin=False):
             {
                 "text": "👑 مدیریت کشورها",
                 "callback_data": "admin_countries"
-            }
-        ])
-
-        keyboard.append([
+            },
             {
                 "text": "⚙️ پنل مدیریت",
                 "callback_data": "admin_panel"
@@ -718,4 +709,4 @@ def trade_main_menu_keyboard():
                 }
             ]
         ]
-}
+            }
