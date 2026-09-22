@@ -11,6 +11,7 @@ edit_message = None
 
 admin_sessions = {}
 
+
 # =========================
 # اتصال به bot.py
 # =========================
@@ -22,12 +23,14 @@ def setup(send_message_function, edit_message_function):
     send_message = send_message_function
     edit_message = edit_message_function
 
+
 # =========================
 # بررسی ادمین بودن
 # =========================
 
 def is_admin(user_id):
     return user_id in getattr(config, "ADMINS", [])
+
 
 # =========================
 # ایموجی کشورها
@@ -66,6 +69,7 @@ COUNTRY_FLAGS = {
     "قطر": "🇶🇦"
 }
 
+
 # =========================
 # منوی مدیریت کشورها
 # =========================
@@ -96,6 +100,7 @@ def admin_country_list_keyboard(countries):
         "inline_keyboard": keyboard
     }
 
+
 # =========================
 # دکمه‌های مدیریت کشور
 # =========================
@@ -121,12 +126,25 @@ def admin_manage_keyboard(user_id):
             ],
             [
                 {
+                    "text": "🚫 بن و حذف کاربر",
+                    "callback_data": f"admin_ban_{user_id}"
+                }
+            ],
+            [
+                {
+                    "text": "🚷 کاربران بن شده",
+                    "callback_data": "admin_banned_users"
+                }
+            ],
+            [
+                {
                     "text": "🔙 لیست کشورها",
                     "callback_data": "admin_countries"
                 }
             ]
         ]
     }
+
 
 # =========================
 # دکمه‌های تأیید نابودی
@@ -151,12 +169,69 @@ def admin_destroy_confirm_keyboard(user_id):
         ]
     }
 
+
+# =========================
+# دکمه‌های لیست بن شده‌ها
+# =========================
+
+def banned_users_keyboard(users):
+
+    keyboard = []
+
+    for user in users:
+
+        user_id = user["user_id"]
+
+        keyboard.append([
+            {
+                "text": f"🚫 {user_id}",
+                "callback_data": f"admin_banned_user_{user_id}"
+            }
+        ])
+
+    keyboard.append([
+        {
+            "text": "🔙 برگشت",
+            "callback_data": "admin_countries"
+        }
+    ])
+
+    return {
+        "inline_keyboard": keyboard
+    }
+
+
+# =========================
+# دکمه اطلاعات کاربر بن شده
+# =========================
+
+def banned_user_info_keyboard(user_id):
+
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "♻️ آنبن کردن کاربر",
+                    "callback_data": f"admin_unban_{user_id}"
+                }
+            ],
+            [
+                {
+                    "text": "🔙 برگشت",
+                    "callback_data": "admin_banned_users"
+                }
+            ]
+        ]
+    }
+
+
 # =========================
 # گرفتن تعداد آیتم
 # =========================
 
 def get_quantity(inventory, item_id):
     return inventory.get(item_id, 0)
+
 
 # =========================
 # داشبورد کشور
@@ -336,6 +411,7 @@ def build_country_dashboard(user):
 
     return text
 
+
 # =========================
 # نمایش لیست کشورها
 # =========================
@@ -350,6 +426,12 @@ def show_country_list(chat_id, message_id=None):
 
         keyboard = {
             "inline_keyboard": [
+                [
+                    {
+                        "text": "🚷 کاربران بن شده",
+                        "callback_data": "admin_banned_users"
+                    }
+                ],
                 [
                     {
                         "text": "🔙 منوی اصلی",
@@ -382,6 +464,7 @@ def show_country_list(chat_id, message_id=None):
             keyboard
         )
 
+
 # =========================
 # نمایش کشور انتخاب شده
 # =========================
@@ -409,6 +492,7 @@ def show_country(chat_id, message_id, target_user_id):
         admin_manage_keyboard(target_user_id)
     )
 
+
 # =========================
 # شروع افزایش پول
 # =========================
@@ -430,6 +514,7 @@ def start_increase(chat_id, message_id, admin_id, target_user_id):
         "5000000\n\n"
         "❌ برای لغو، /cancel را بفرستید."
     )
+
 
 # =========================
 # شروع کاهش پول
@@ -453,6 +538,291 @@ def start_decrease(chat_id, message_id, admin_id, target_user_id):
         "❌ برای لغو، /cancel را بفرستید."
     )
 
+
+# =========================
+# شروع بن کردن کاربر
+# =========================
+
+def start_ban(chat_id, message_id, admin_id, target_user_id):
+
+    target_user = database.get_user(
+        target_user_id
+    )
+
+    if target_user is None or not target_user["country"]:
+
+        edit_message(
+            chat_id,
+            message_id,
+            "❌ این کشور دیگر بازیکن ندارد."
+        )
+
+        return
+
+    admin_sessions[admin_id] = {
+        "action": "ban",
+        "target_user_id": target_user_id,
+        "message_id": message_id
+    }
+
+    edit_message(
+        chat_id,
+        message_id,
+        "🚫 بن و حذف کاربر\n\n"
+        f"👤 آیدی کاربر: `{target_user_id}`\n"
+        f"🌍 کشور: {target_user['country']}\n\n"
+        "📄 دلیل بن را ارسال کنید.\n\n"
+        "❌ برای لغو، /cancel را بفرستید."
+    )
+
+
+# =========================
+# پردازش دلیل بن
+# =========================
+
+def process_ban_reason(chat_id, admin_id, text):
+
+    session = admin_sessions.get(
+        admin_id
+    )
+
+    if session is None:
+        return False
+
+    if text.lower() == "/cancel":
+
+        message_id = session.get(
+            "message_id"
+        )
+
+        target_user_id = session.get(
+            "target_user_id"
+        )
+
+        admin_sessions.pop(
+            admin_id,
+            None
+        )
+
+        if message_id is not None and target_user_id is not None:
+
+            show_country(
+                chat_id,
+                message_id,
+                target_user_id
+            )
+
+        return True
+
+    reason = text.strip()
+
+    if not reason:
+
+        return True
+
+    target_user_id = session["target_user_id"]
+    message_id = session["message_id"]
+
+    target_user = database.get_user(
+        target_user_id
+    )
+
+    if target_user is None or not target_user["country"]:
+
+        admin_sessions.pop(
+            admin_id,
+            None
+        )
+
+        edit_message(
+            chat_id,
+            message_id,
+            "❌ این کشور دیگر بازیکن ندارد."
+        )
+
+        return True
+
+    username = database.get_username(
+        target_user_id
+    )
+
+    result = database.ban_user_and_reset(
+        target_user_id,
+        reason,
+        username,
+        admin_id
+    )
+
+    admin_sessions.pop(
+        admin_id,
+        None
+    )
+
+    if result == "not_found":
+
+        edit_message(
+            chat_id,
+            message_id,
+            "❌ کاربر پیدا نشد."
+        )
+
+        return True
+
+    if result != "success":
+
+        edit_message(
+            chat_id,
+            message_id,
+            "❌ هنگام بن کردن کاربر خطایی رخ داد."
+        )
+
+        return True
+
+    send_message(
+        target_user_id,
+        "🚫 شما از بازی بن شدید.\n\n"
+        "❌ کشور شما حذف شد و دیگر نمی‌توانید کشور انتخاب کنید.\n\n"
+        f"📄 دلیل بن:\n{reason}"
+    )
+
+    edit_message(
+        chat_id,
+        message_id,
+        "✅ کاربر با موفقیت بن شد.\n\n"
+        f"👤 آیدی: `{target_user_id}`\n"
+        f"🌍 کشور «{target_user['country']}» حذف شد.\n\n"
+        f"📄 دلیل:\n{reason}",
+        {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "🚷 کاربران بن شده",
+                        "callback_data": "admin_banned_users"
+                    }
+                ],
+                [
+                    {
+                        "text": "🔙 مدیریت کشور",
+                        "callback_data": "admin_countries"
+                    }
+                ]
+            ]
+        }
+    )
+
+    return True
+
+
+# =========================
+# نمایش کاربران بن شده
+# =========================
+
+def show_banned_users(chat_id, message_id):
+
+    users = database.get_banned_users()
+
+    if not users:
+
+        edit_message(
+            chat_id,
+            message_id,
+            "🚷 کاربران بن شده\n\n"
+            "❌ در حال حاضر هیچ کاربری بن نیست.",
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "🔙 برگشت",
+                            "callback_data": "admin_countries"
+                        }
+                    ]
+                ]
+            }
+        )
+
+        return
+
+    text = (
+        "🚷 کاربران بن شده\n\n"
+        "کاربر مورد نظر را انتخاب کنید:"
+    )
+
+    edit_message(
+        chat_id,
+        message_id,
+        text,
+        banned_users_keyboard(users)
+    )
+
+
+# =========================
+# نمایش اطلاعات کاربر بن شده
+# =========================
+
+def show_banned_user(chat_id, message_id, target_user_id):
+
+    ban_info = database.get_ban_info(
+        target_user_id
+    )
+
+    if ban_info is None:
+
+        edit_message(
+            chat_id,
+            message_id,
+            "❌ این کاربر دیگر بن نیست.",
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "🔙 برگشت",
+                            "callback_data": "admin_banned_users"
+                        }
+                    ]
+                ]
+            }
+        )
+
+        return
+
+    username = ban_info.get(
+        "username"
+    )
+
+    if username:
+        username_text = f"@{username.lstrip('@')}"
+    else:
+        username_text = "ندارد"
+
+    reason = ban_info.get(
+        "reason"
+    ) or "دلیلی ثبت نشده است."
+
+    text = (
+        "🚷 اطلاعات کاربر\n\n"
+        f"👤 آیدی عددی: `{target_user_id}`\n"
+        f"🔹 آیدی یوزرنیم: `{username_text}`\n\n"
+        f"📄 دلیل:\n{reason}"
+    )
+
+    edit_message(
+        chat_id,
+        message_id,
+        text,
+        banned_user_info_keyboard(
+            target_user_id
+        )
+    )
+
+
+# =========================
+# گرفتن تعداد آیتم
+# =========================
+
+def get_quantity(inventory, item_id):
+    return inventory.get(item_id, 0)
+
+
 # =========================
 # پردازش مبلغ
 # =========================
@@ -466,12 +836,17 @@ def process_amount(chat_id, admin_id, text):
 
     if text.lower() == "/cancel":
 
+        message_id = session.get("message_id")
+        target_user_id = session.get("target_user_id")
+
         admin_sessions.pop(admin_id, None)
 
-        send_message(
-            chat_id,
-            "❌ عملیات لغو شد."
-        )
+        if message_id is not None and target_user_id is not None:
+            show_country(
+                chat_id,
+                message_id,
+                target_user_id
+            )
 
         return True
 
@@ -482,20 +857,9 @@ def process_amount(chat_id, admin_id, text):
 
     except ValueError:
 
-        send_message(
-            chat_id,
-            "❌ مبلغ نامعتبر است.\n\n"
-            "لطفاً فقط عدد وارد کنید."
-        )
-
         return True
 
     if amount <= 0:
-
-        send_message(
-            chat_id,
-            "❌ مبلغ باید بیشتر از صفر باشد."
-        )
 
         return True
 
@@ -517,18 +881,9 @@ def process_amount(chat_id, admin_id, text):
 
     country = target_user["country"]
 
-    # =========================
-    # افزایش
-    # =========================
-
     if action == "increase":
-
         new_budget = target_user["budget"] + amount
-
-        database.update_budget(
-            target_user_id,
-            new_budget
-        )
+        database.update_budget(target_user_id, new_budget)
 
         send_message(
             target_user_id,
@@ -540,28 +895,17 @@ def process_amount(chat_id, admin_id, text):
             f"✅ مبلغ {amount:,} به کشور «{country}» اضافه شد."
         )
 
-    # =========================
-    # کاهش
-    # =========================
-
     elif action == "decrease":
-
         if target_user["budget"] < amount:
-
             send_message(
                 chat_id,
                 "❌ موجودی این کشور برای این مقدار کافی نیست.\n\n"
                 f"💰 موجودی فعلی: {target_user['budget']:,}"
             )
-
             return True
 
         new_budget = target_user["budget"] - amount
-
-        database.update_budget(
-            target_user_id,
-            new_budget
-        )
+        database.update_budget(target_user_id, new_budget)
 
         send_message(
             target_user_id,
@@ -574,18 +918,14 @@ def process_amount(chat_id, admin_id, text):
         )
 
     admin_sessions.pop(admin_id, None)
-
     return True
+
 
 # =========================
 # مدیریت آپدیت‌ها
 # =========================
 
 def handle_update(update):
-
-    # =========================
-    # پیام متنی
-    # =========================
 
     if "message" in update:
 
@@ -601,6 +941,20 @@ def handle_update(update):
 
         if user_id in admin_sessions:
 
+            session = admin_sessions.get(
+                user_id
+            )
+
+            if session and session.get("action") == "ban":
+
+                process_ban_reason(
+                    chat_id,
+                    user_id,
+                    text
+                )
+
+                return
+
             process_amount(
                 chat_id,
                 user_id,
@@ -611,9 +965,6 @@ def handle_update(update):
 
         return
 
-    # =========================
-    # Callback
-    # =========================
 
     if "callback_query" not in update:
         return
@@ -626,7 +977,6 @@ def handle_update(update):
         return
 
     data = callback.get("data")
-
     message = callback.get("message")
 
     if message is None:
@@ -635,13 +985,17 @@ def handle_update(update):
     chat_id = message["chat"]["id"]
     message_id = message["message_id"]
 
+
     # =========================
-    # مدیریت کشورها
+    # لیست کشورها
     # =========================
 
     if data == "admin_countries":
 
-        admin_sessions.pop(admin_id, None)
+        admin_sessions.pop(
+            admin_id,
+            None
+        )
 
         show_country_list(
             chat_id,
@@ -649,6 +1003,124 @@ def handle_update(update):
         )
 
         return
+
+
+    # =========================
+    # کاربران بن شده
+    # =========================
+
+    if data == "admin_banned_users":
+
+        admin_sessions.pop(
+            admin_id,
+            None
+        )
+
+        show_banned_users(
+            chat_id,
+            message_id
+        )
+
+        return
+
+
+    # =========================
+    # اطلاعات کاربر بن شده
+    # =========================
+
+    if data.startswith("admin_banned_user_"):
+
+        try:
+            target_user_id = int(
+                data.replace(
+                    "admin_banned_user_",
+                    ""
+                )
+            )
+        except ValueError:
+            return
+
+        admin_sessions.pop(
+            admin_id,
+            None
+        )
+
+        show_banned_user(
+            chat_id,
+            message_id,
+            target_user_id
+        )
+
+        return
+
+
+    # =========================
+    # آنبن کردن
+    # =========================
+
+    if data.startswith("admin_unban_"):
+
+        try:
+            target_user_id = int(
+                data.replace(
+                    "admin_unban_",
+                    ""
+                )
+            )
+        except ValueError:
+            return
+
+        result = database.unban_user(
+            target_user_id
+        )
+
+        if not result:
+
+            edit_message(
+                chat_id,
+                message_id,
+                "❌ این کاربر دیگر بن نیست.",
+                {
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "🔙 برگشت",
+                                "callback_data": "admin_banned_users"
+                            }
+                        ]
+                    ]
+                }
+            )
+
+            return
+
+        edit_message(
+            chat_id,
+            message_id,
+            "✅ کاربر با موفقیت آنبن شد.\n\n"
+            f"👤 آیدی: `{target_user_id}`\n\n"
+            "🌍 این کاربر کشور قبلی خود را پس نمی‌گیرد.\n"
+            "او می‌تواند مانند یک بازیکن جدید یک کشور انتخاب کند.",
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "🚷 کاربران بن شده",
+                            "callback_data": "admin_banned_users"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "🔙 مدیریت کشورها",
+                            "callback_data": "admin_countries"
+                        }
+                    ]
+                ]
+            }
+        )
+
+        return
+
 
     # =========================
     # انتخاب کشور
@@ -658,12 +1130,18 @@ def handle_update(update):
 
         try:
             target_user_id = int(
-                data.replace("admin_country_", "")
+                data.replace(
+                    "admin_country_",
+                    ""
+                )
             )
         except ValueError:
             return
 
-        admin_sessions.pop(admin_id, None)
+        admin_sessions.pop(
+            admin_id,
+            None
+        )
 
         show_country(
             chat_id,
@@ -673,15 +1151,45 @@ def handle_update(update):
 
         return
 
+
     # =========================
-    # تأیید نهایی نابودی کشور
+    # شروع بن
+    # =========================
+
+    if data.startswith("admin_ban_"):
+
+        try:
+            target_user_id = int(
+                data.replace(
+                    "admin_ban_",
+                    ""
+                )
+            )
+        except ValueError:
+            return
+
+        start_ban(
+            chat_id,
+            message_id,
+            admin_id,
+            target_user_id
+        )
+
+        return
+
+
+    # =========================
+    # تأیید نابودی کشور
     # =========================
 
     if data.startswith("admin_destroy_confirm_"):
 
         try:
             target_user_id = int(
-                data.replace("admin_destroy_confirm_", "")
+                data.replace(
+                    "admin_destroy_confirm_",
+                    ""
+                )
             )
         except ValueError:
             return
@@ -702,18 +1210,9 @@ def handle_update(update):
 
         country = target_user["country"]
 
-        # =========================
-        # ریست کامل کشور
-        # دقیقاً همان تابع شکست نظامی
-        # =========================
-
         database.reset_player_after_defeat(
             target_user_id
         )
-
-        # =========================
-        # ارسال پیام به بازیکن
-        # =========================
 
         send_message(
             target_user_id,
@@ -721,10 +1220,6 @@ def handle_update(update):
             "🌍 شما باید یک کشور جدید انتخاب کنید.",
             keyboards.country_keyboard()
         )
-
-        # =========================
-        # نمایش نتیجه برای ادمین
-        # =========================
 
         edit_message(
             chat_id,
@@ -740,15 +1235,19 @@ def handle_update(update):
 
         return
 
+
     # =========================
-    # شروع نابودی کشور
+    # درخواست تأیید نابودی
     # =========================
 
     if data.startswith("admin_destroy_"):
 
         try:
             target_user_id = int(
-                data.replace("admin_destroy_", "")
+                data.replace(
+                    "admin_destroy_",
+                    ""
+                )
             )
         except ValueError:
             return
@@ -785,6 +1284,7 @@ def handle_update(update):
 
         return
 
+
     # =========================
     # افزایش پول
     # =========================
@@ -793,7 +1293,10 @@ def handle_update(update):
 
         try:
             target_user_id = int(
-                data.replace("admin_increase_", "")
+                data.replace(
+                    "admin_increase_",
+                    ""
+                )
             )
         except ValueError:
             return
@@ -807,6 +1310,7 @@ def handle_update(update):
 
         return
 
+
     # =========================
     # کاهش پول
     # =========================
@@ -815,7 +1319,10 @@ def handle_update(update):
 
         try:
             target_user_id = int(
-                data.replace("admin_decrease_", "")
+                data.replace(
+                    "admin_decrease_",
+                    ""
+                )
             )
         except ValueError:
             return
