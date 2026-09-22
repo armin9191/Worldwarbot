@@ -122,6 +122,13 @@ def main_menu_keyboard(is_admin=False):
             }
         ])
 
+        keyboard.append([
+            {
+                "text": "⚙️ پنل مدیریت",
+                "callback_data": "admin_panel"
+            }
+        ])
+
     return {
         "inline_keyboard": keyboard
     }
