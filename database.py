@@ -40,11 +40,21 @@ def init_db():
         )
     """)
 
-    # اضافه کردن ستون زمان انتخاب کشور (اگر وجود نداشت)
+    # اضافه کردن ستون زمان انتخاب کشور
     try:
-        cursor.execute("ALTER TABLE users ADD COLUMN country_selected_at INTEGER")
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN country_selected_at INTEGER"
+        )
     except:
-        pass  # ستون از قبل وجود دارد
+        pass
+
+    # اضافه کردن username
+    try:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN username TEXT"
+        )
+    except:
+        pass
 
     # جدول موجودی
     cursor.execute("""
@@ -61,6 +71,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS mine_income_state (
             id INTEGER PRIMARY KEY CHECK(id = 1),
             last_payout_date TEXT
+        )
+    """)
+
+    # =========================================
+    # جدول کاربران بن شده
+    # =========================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS banned_users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            reason TEXT NOT NULL,
+            banned_at INTEGER NOT NULL,
+            banned_by INTEGER
         )
     """)
 
@@ -92,7 +116,7 @@ def create_user(user_id):
 
 
 # =========================
-# گرفتن اطلاعات کاربر
+# دریافت کاربر
 # =========================
 
 def get_user(user_id):
@@ -122,7 +146,7 @@ def get_user(user_id):
 
 
 # =========================
-# گرفتن یا ساخت کاربر
+# دریافت یا ساخت کاربر
 # =========================
 
 def get_or_create_user(user_id):
@@ -136,7 +160,258 @@ def get_or_create_user(user_id):
 
 
 # =========================
-# گرفتن صاحب یک کشور
+# ذخیره Username
+# =========================
+
+def update_username(user_id, username):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE users
+        SET username = ?
+        WHERE user_id = ?
+    """, (
+        username,
+        user_id
+    ))
+
+    connection.commit()
+    connection.close()
+
+
+# =========================
+# دریافت Username
+# =========================
+
+def get_username(user_id):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT username
+        FROM users
+        WHERE user_id = ?
+    """, (user_id,))
+
+    result = cursor.fetchone()
+
+    connection.close()
+
+    if result is None:
+        return None
+
+    return result[0]
+
+
+# =========================
+# بررسی بن بودن کاربر
+# =========================
+
+def get_ban_info(user_id):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT user_id, username, reason, banned_at, banned_by
+        FROM banned_users
+        WHERE user_id = ?
+        LIMIT 1
+    """, (user_id,))
+
+    result = cursor.fetchone()
+
+    connection.close()
+
+    if result is None:
+        return None
+
+    return {
+        "user_id": result[0],
+        "username": result[1],
+        "reason": result[2],
+        "banned_at": result[3],
+        "banned_by": result[4]
+    }
+
+
+def is_user_banned(user_id):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT 1
+        FROM banned_users
+        WHERE user_id = ?
+        LIMIT 1
+    """, (user_id,))
+
+    result = cursor.fetchone()
+
+    connection.close()
+
+    return result is not None
+
+
+# =========================
+# بن کردن + حذف کشور
+# =========================
+
+def ban_user_and_reset(
+    user_id,
+    reason,
+    username=None,
+    banned_by=None
+):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+
+        cursor.execute("BEGIN IMMEDIATE")
+
+        # بررسی وجود کاربر
+        cursor.execute("""
+            SELECT country
+            FROM users
+            WHERE user_id = ?
+        """, (user_id,))
+
+        user = cursor.fetchone()
+
+        if user is None:
+            connection.rollback()
+            return "not_found"
+
+        # اگر username جدید داریم ذخیره شود
+        if username is not None:
+            cursor.execute("""
+                UPDATE users
+                SET username = ?
+                WHERE user_id = ?
+            """, (
+                username,
+                user_id
+            ))
+
+        # ثبت بن
+        cursor.execute("""
+            INSERT INTO banned_users
+            (
+                user_id,
+                username,
+                reason,
+                banned_at,
+                banned_by
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id)
+            DO UPDATE SET
+                username = excluded.username,
+                reason = excluded.reason,
+                banned_at = excluded.banned_at,
+                banned_by = excluded.banned_by
+        """, (
+            user_id,
+            username,
+            reason,
+            int(time.time()),
+            banned_by
+        ))
+
+        # حذف کشور و ریست اطلاعات
+        cursor.execute("""
+            UPDATE users
+            SET country = NULL,
+                budget = 200000000,
+                hp = 100,
+                country_selected_at = NULL
+            WHERE user_id = ?
+        """, (user_id,))
+
+        # حذف موجودی
+        cursor.execute("""
+            DELETE FROM inventory
+            WHERE user_id = ?
+        """, (user_id,))
+
+        connection.commit()
+
+        return "success"
+
+    except Exception as error:
+
+        connection.rollback()
+
+        print(
+            f"Ban User Error: {error}"
+        )
+
+        return "error"
+
+    finally:
+        connection.close()
+
+
+# =========================
+# آنبن کردن کاربر
+# =========================
+
+def unban_user(user_id):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        DELETE FROM banned_users
+        WHERE user_id = ?
+    """, (user_id,))
+
+    success = cursor.rowcount > 0
+
+    connection.commit()
+    connection.close()
+
+    return success
+
+
+# =========================
+# لیست کاربران بن شده
+# =========================
+
+def get_banned_users():
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT user_id, username, reason, banned_at, banned_by
+        FROM banned_users
+        ORDER BY banned_at DESC
+    """)
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    users = []
+
+    for user_id, username, reason, banned_at, banned_by in rows:
+
+        users.append({
+            "user_id": user_id,
+            "username": username,
+            "reason": reason,
+            "banned_at": banned_at,
+            "banned_by": banned_by
+        })
+
+    return users
+
+
+# =========================
+# دریافت صاحب کشور
 # =========================
 
 def get_country_owner(country):
@@ -182,7 +457,6 @@ def is_country_available(country, user_id=None):
     if result is None:
         return True
 
-    # اگر صاحب کشور خود همین کاربر باشد
     if user_id is not None and result[0] == user_id:
         return True
 
@@ -190,29 +464,16 @@ def is_country_available(country, user_id=None):
 
 
 # =========================
-# انتخاب کشور امن
+# انتخاب کشور
 # =========================
 
 def set_country(user_id, country):
-    """
-    انتخاب کشور به صورت امن.
-
-    خروجی:
-    success        = انتخاب موفق
-    occupied       = کشور قبلاً گرفته شده
-    already_owned  = همین کاربر قبلاً همین کشور را دارد
-    has_country    = کاربر از قبل کشور دیگری دارد
-    not_found      = کاربر وجود ندارد
-    """
-
     connection = get_connection()
     cursor = connection.cursor()
 
     try:
-        # جلوگیری از تداخل همزمان
         cursor.execute("BEGIN IMMEDIATE")
 
-        # بررسی کاربر
         cursor.execute("""
             SELECT country
             FROM users
@@ -227,17 +488,14 @@ def set_country(user_id, country):
 
         current_country = user[0]
 
-        # اگر همین کشور را دارد
         if current_country == country:
             connection.commit()
             return "already_owned"
 
-        # اگر از قبل کشور دیگری دارد
         if current_country is not None:
             connection.commit()
             return "has_country"
 
-        # بررسی اینکه کشور قبلاً گرفته شده یا نه
         cursor.execute("""
             SELECT user_id
             FROM users
@@ -251,7 +509,6 @@ def set_country(user_id, country):
             connection.commit()
             return "occupied"
 
-        # انتخاب کشور + ثبت زمان تأسیس
         cursor.execute("""
             UPDATE users
             SET country = ?, country_selected_at = ?
@@ -280,7 +537,7 @@ def set_country(user_id, country):
 
 
 # =========================
-# تغییر بودجه
+# بروزرسانی بودجه
 # =========================
 
 def update_budget(user_id, budget):
@@ -298,7 +555,7 @@ def update_budget(user_id, budget):
 
 
 # =========================
-# اضافه کردن بودجه
+# افزایش بودجه
 # =========================
 
 def add_budget(user_id, amount):
@@ -323,7 +580,7 @@ def add_budget(user_id, amount):
 
 
 # =========================
-# کم کردن بودجه
+# کاهش بودجه
 # =========================
 
 def decrease_budget(user_id, amount):
@@ -350,7 +607,7 @@ def decrease_budget(user_id, amount):
 
 
 # =========================
-# تغییر HP
+# بروزرسانی HP
 # =========================
 
 def update_hp(user_id, hp):
@@ -368,7 +625,7 @@ def update_hp(user_id, hp):
 
 
 # =========================
-# اضافه کردن به موجودی
+# افزودن موجودی
 # =========================
 
 def add_inventory(user_id, item_id, quantity):
@@ -393,7 +650,7 @@ def add_inventory(user_id, item_id, quantity):
 
 
 # =========================
-# کم کردن از موجودی
+# کاهش موجودی
 # =========================
 
 def decrease_inventory(user_id, item_id, quantity):
@@ -428,7 +685,7 @@ def decrease_inventory(user_id, item_id, quantity):
 
 
 # =========================
-# گرفتن تعداد یک آیتم
+# دریافت یک آیتم
 # =========================
 
 def get_inventory_item(user_id, item_id):
@@ -456,7 +713,7 @@ def get_inventory_item(user_id, item_id):
 
 
 # =========================
-# گرفتن کل موجودی کاربر
+# دریافت کل موجودی
 # =========================
 
 def get_inventory(user_id):
@@ -483,9 +740,9 @@ def get_inventory(user_id):
     return inventory
 
 
-# ==============================
-# کشورهای انتخاب شده توسط بازیکنان
-# ==============================
+# =========================
+# کشورهای انتخاب شده
+# =========================
 
 def get_selected_countries():
     connection = get_connection()
@@ -514,9 +771,9 @@ def get_selected_countries():
     return countries
 
 
-# ==============================
-# ریست کامل بازیکن بعد از نابودی کشور
-# ==============================
+# =========================
+# ریست بازیکن بعد از شکست
+# =========================
 
 def reset_player_after_defeat(user_id):
     connection = get_connection()
@@ -579,9 +836,9 @@ def transfer_budget(from_user_id, to_user_id, amount):
     return True
 
 
-# ==============================
-# درآمد روزانه معادن
-# ==============================
+# =========================
+# آخرین درآمد معدن
+# =========================
 
 def get_last_mine_payout_date():
     connection = get_connection()
@@ -601,6 +858,10 @@ def get_last_mine_payout_date():
 
     return result[0]
 
+
+# =========================
+# ثبت آخرین درآمد معدن
+# =========================
 
 def set_last_mine_payout_date(date):
     connection = get_connection()
